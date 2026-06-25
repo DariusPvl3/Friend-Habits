@@ -27,7 +27,7 @@ export default function TabLayout() {
         headerShown: useClientOnlyValue(false, true),
       }}>
       <Tabs.Screen
-        name="index"
+        name="home"
         options={{
           title: 'Home',
           tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
@@ -48,9 +48,23 @@ export default function TabLayout() {
         }}
       />
       <Tabs.Screen
-        name="two"
+        name="habits"
         options={{
-          title: 'Tab Two',
+          title: 'Habits',
+          tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="friends"
+        options={{
+          title: 'Friends',
+          tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="me"
+        options={{
+          title: 'Me',
           tabBarIcon: ({ color }) => <TabBarIcon name="code" color={color} />,
         }}
       />
