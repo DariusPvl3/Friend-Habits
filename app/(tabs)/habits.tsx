@@ -1,10 +1,12 @@
-import React from 'react';
-import { StyleSheet, Text, View, Image, TouchableOpacity, ScrollView, useColorScheme } from 'react-native';
-import { Tabs, useRouter } from 'expo-router';
+import React, { useState, useEffect, useCallback } from 'react';
+import { StyleSheet, Text, View, TouchableOpacity, ScrollView, useColorScheme, ActivityIndicator, RefreshControl } from 'react-native';
+import { Tabs, useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Colors from '../../constants/Colors';
 
-// Friends tab
+import { db } from '../../config/firebase'; 
+import { collection, query, where, onSnapshot } from 'firebase/firestore';
+
 interface Habit {
   id: string;
   title: string;
@@ -12,118 +14,139 @@ interface Habit {
   streak: number; 
 }
 
-// Fake Data before hooking up Firebase
-const FAKE_HABITS: Habit[] = [
-  { id: '1', title: 'Gym', category: 'Sports', streak: 5},
-  { id: '2', title: 'Deficit caloric', category: 'Health', streak: 3},
-  { id: '3', title: 'Reading', category: 'Free time', streak: 2},
-];
-
 export default function HabitsScreen() {
   const router = useRouter();
-
   const colorScheme = useColorScheme() ?? 'light';
   const currentColors = Colors[colorScheme];
 
-  // This function handles what happens when a habit is clicked
-  const handleHabitPress = (habitTitle: string, habitCategory: string, habitStreak: number) => {
-    // Use router.push to navigate and pass data via pathname query object
+  const [habits, setHabits] = useState<Habit[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  // Setup a continuous live stream listener to Firestore
+  useFocusEffect(
+    useCallback(() => {
+      const habitsCollection = collection(db, 'habits');
+      const q = query(habitsCollection, where('userId', '==', 'test_user_1'));
+      
+      // onSnapshot stays open and listens for live cloud updates
+      const unsubscribe = onSnapshot(q, (querySnapshot) => {
+        const loadedHabits: Habit[] = [];
+        
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          loadedHabits.push({
+            id: doc.id,
+            title: data.title || 'Untitled',
+            category: data.category || 'General',
+            streak: Number(data.streak) || 0,
+          });
+        });
+
+        setHabits(loadedHabits);
+        setLoading(false);
+        setRefreshing(false); // Stop the pulling spinner if it was triggered
+      }, (error) => {
+        console.error("Live streaming habits failed: ", error);
+        setLoading(false);
+        setRefreshing(false);
+      });
+
+      // CRITICAL: Clean up the listener when the user leaves the screen 
+      // This prevents memory leaks and unnecessary Firebase data charges
+      return () => unsubscribe();
+    }, [])
+  );
+  
+
+  // Manual pull-to-refresh action trigger (satisfies mobile gesture habits)
+  const onRefresh = React.useCallback(() => {
+    setRefreshing(true);
+    setTimeout(() => {setRefreshing(false)}, 1000)
+  }, []);
+
+  const handleHabitPress = (habitId: string, habitTitle: string, habitCategory: string, habitStreak: number) => {
     router.push({
       pathname: '/habit-detail',
-      params: { 
-        title: habitTitle, 
-        category: habitCategory,
-        streak: habitStreak,
-      }
+      params: { id: habitId, title: habitTitle, category: habitCategory, streak: String(habitStreak) }
     });
   };
 
   return (
-    // ScrollView allows the user to scroll vertically if the list gets long
     <SafeAreaView style={[styles.safeArea, { backgroundColor: currentColors.background }]}>
       <Tabs.Screen options={{ headerShown: false }} />
       
-      <ScrollView style={styles.container}>
-        <Text style={[styles.headerTitle, { color: currentColors.title }]}>My Habits</Text>
-        
-        {/* Loop through the array and render custom card layout */}
-        {FAKE_HABITS.map((habit) => (
+      {loading ? (
+        <View style={styles.centerContainer}>
+          <ActivityIndicator size="large" color={currentColors.tint} />
+          <Text style={{ color: '#94A3B8', marginTop: 12 }}>Loading your habits...</Text>
+        </View>
+      ) : (
+        /* Inject RefreshControl into the ScrollView component container */
+        <ScrollView 
+          style={styles.container}
+          refreshControl={
+            <RefreshControl 
+              refreshing={refreshing} 
+              onRefresh={onRefresh} 
+              tintColor={currentColors.tint} // Color of spinner on iOS
+              colors={[currentColors.tint]} // Color of spinner on Android
+            />
+          }
+        >
+          <View style={styles.headerRow}>
+            <Text style={[styles.headerTitle, { color: currentColors.title, marginBottom: 0 }]}>My Habits</Text>
             <TouchableOpacity 
-            key={habit.id} 
-            style={[styles.habitCard, { backgroundColor: currentColors.cardBackground || (colorScheme === 'dark' ? '#1E293B' : '#FFFFFF') }]}
-            onPress={() => handleHabitPress(habit.title, habit.category, habit.streak)}
-            activeOpacity={0.7}
+              style={[styles.addButton, { backgroundColor: currentColors.tint }]}
+              onPress={() => router.push('/add-habit')}
             >
-
-            {/* Center: Habit Info Text */}
-            <View style={styles.infoContainer}>
-                <Text style={[styles.habitTitle, { color: currentColors.text }]}>{habit.title}</Text>
-                <Text style={[styles.habitCategory, { color: currentColors.text }]}>{habit.category}</Text>
-            </View>
-
-            {/* Right Side: A Visual Progress Badge */}
-            <View style={[styles.badge, { backgroundColor: habit.streak >= 3 ? currentColors.streakBg: currentColors.badge}]}>
-              <Text style={[styles.badgeText, { color: habit.streak >= 3 ? '#FF6B35' : currentColors.text }]}>
-                {habit.streak >= 3 ? `🔥 ${habit.streak}` : habit.streak}
-              </Text>
-            </View>
+              <Text style={styles.addButtonText}>New +</Text>
             </TouchableOpacity>
-        ))}
+          </View>
+          
+          {habits.length === 0 ? (
+            <View style={styles.centerContainer}>
+              <Text style={{ color: '#94A3B8' }}>No habits found. Create one to get started!</Text>
+            </View>
+          ) : (
+            habits.map((habit) => (
+              <TouchableOpacity 
+                key={habit.id} 
+                style={[styles.habitCard, { backgroundColor: currentColors.cardBackground || (colorScheme === 'dark' ? '#1E293B' : '#FFFFFF') }]}
+                onPress={() => handleHabitPress(habit.id, habit.title, habit.category, habit.streak)}
+                activeOpacity={0.7}
+              >
+                <View style={styles.infoContainer}>
+                  <Text style={[styles.habitTitle, { color: currentColors.text }]}>{habit.title}</Text>
+                  <Text style={styles.habitCategory}>{habit.category}</Text>
+                </View>
+
+                <View style={[styles.badge, { backgroundColor: habit.streak >= 3 ? currentColors.streakBg : currentColors.badge }]}>
+                  <Text style={[styles.badgeText, { color: habit.streak >= 3 ? '#FF6B35' : currentColors.text }]}>
+                    {habit.streak >= 3 ? `🔥 ${habit.streak}` : habit.streak}
+                  </Text>
+                </View>
+              </TouchableOpacity>
+            ))
+          )}
         </ScrollView>
+      )}
     </SafeAreaView>
   );
 }
 
-// Layout and Styling styles using Flexbox
 const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 24,
-  },
-  safeArea: {
-    flex: 1
-  },
-  headerTitle: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    marginBottom: 20,
-  },
-  habitCard: {
-    flexDirection: 'row', // Aligns items horizontally (Text -> Badge)
-    alignItems: 'center', // Centers elements vertically within the row
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 12,
-    // Soft shadow for light mode
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2, // Shadow for Android devices
-  },
-  infoContainer: {
-    flex: 1, // Takes up all remaining available horizontal space
-  },
-  habitTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
-  habitCategory: {
-    fontSize: 14,
-    color: '#94A3B8', // Muted slate color for descriptions
-  },
-  badge: {
-    width: 58,
-    height: 32,
-    borderRadius: 10,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  badgeText: {
-    color: '#FFF',
-    fontSize: 13,
-    fontWeight: 'bold',
-  },
+  container: { flex: 1, paddingHorizontal: 16, paddingTop: 24 },
+  safeArea: { flex: 1 },
+  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
+  headerTitle: { fontSize: 28, fontWeight: 'bold' },
+  addButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 },
+  addButtonText: { color: '#FFF', fontWeight: '700', fontSize: 14 },
+  habitCard: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 16, marginBottom: 12 },
+  infoContainer: { flex: 1 },
+  habitTitle: { fontSize: 18, fontWeight: '600', marginBottom: 4 },
+  habitCategory: { fontSize: 14, color: '#94A3B8' },
+  badge: { width: 58, height: 32, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
+  badgeText: { fontSize: 13, fontWeight: 'bold' },
 });
