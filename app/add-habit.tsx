@@ -36,9 +36,10 @@ export default function AddHabitScreen() {
         title: title.trim(),
         category: selectedCategory,
         frequency: frequency,
-        streak: 0,                   // New habits start at zero!
-        completedToday: false,       // Freshly minted and waiting
-        userId: 'test_user_1',       // Keeping our unified temporary test user ID anchor
+        streak: 0, // New habits start at 0
+        completedToday: false, // Freshly added and waiting
+        userId: 'test_user_1',
+        history: {},
         createdAt: serverTimestamp() // Great practice to log server creation times
       });
 
@@ -67,7 +68,15 @@ export default function AddHabitScreen() {
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
         <SafeAreaView style={[styles.container, { backgroundColor: currentColors.background }]}>
-        <Stack.Screen options={{ title: 'Create Habit', headerShown: true, headerTintColor: currentColors.tint }} />
+        <Stack.Screen 
+            options={{ 
+              headerShown: true, 
+              title: "Create Habit",
+              headerTintColor: currentColors.tint,
+              headerStyle: { backgroundColor: currentColors.background },
+              animation: 'slide_from_right'
+            }} 
+        />
         
         <View style={styles.formContainer}>
             <Text style={[styles.label, { color: currentColors.text }]}>What is your habit called?</Text>

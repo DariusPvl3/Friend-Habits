@@ -1,17 +1,29 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, ScrollView, useColorScheme, ActivityIndicator, RefreshControl } from 'react-native';
+import React, { useState, useCallback } from 'react';
+import { StyleSheet, Text, View, ScrollView, useColorScheme, ActivityIndicator, RefreshControl } from 'react-native';
 import { Tabs, useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Colors from '../../constants/Colors';
 
 import { db } from '../../config/firebase'; 
-import { collection, query, where, onSnapshot } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
+import CustomButton from '@/components/CustomButton';
+import HabitCard from '@/components/HabitCard';
+import CustomModal from '@/components/CustomModal';
 
 interface Habit {
   id: string;
   title: string;
   category: string;
   streak: number; 
+  frequency: number;
+  history: Record<string, 'completed' | 'skipped' | 'failed'>;
+}
+
+interface HabitModalButton {
+  text: string;
+  variant?: 'tint' | 'success' | 'danger' | 'neutral' | 'outline';
+  onPress: () => void | Promise<void>;
+  disabled?: boolean;
 }
 
 export default function HabitsScreen() {
@@ -23,13 +35,15 @@ export default function HabitsScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const [activeHabit, setActiveHabit] = useState<Habit | null>(null);
+  const [modalVisible, setModalVisible] = useState(false);
+
   // Setup a continuous live stream listener to Firestore
   useFocusEffect(
     useCallback(() => {
       const habitsCollection = collection(db, 'habits');
       const q = query(habitsCollection, where('userId', '==', 'test_user_1'));
       
-      // onSnapshot stays open and listens for live cloud updates
       const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const loadedHabits: Habit[] = [];
         
@@ -40,29 +54,28 @@ export default function HabitsScreen() {
             title: data.title || 'Untitled',
             category: data.category || 'General',
             streak: Number(data.streak) || 0,
+            frequency: Number(data.frequency) || 7,
+            history: data.history || {},
           });
         });
 
         setHabits(loadedHabits);
         setLoading(false);
-        setRefreshing(false); // Stop the pulling spinner if it was triggered
+        setRefreshing(false);
       }, (error) => {
         console.error("Live streaming habits failed: ", error);
         setLoading(false);
         setRefreshing(false);
       });
 
-      // CRITICAL: Clean up the listener when the user leaves the screen 
-      // This prevents memory leaks and unnecessary Firebase data charges
       return () => unsubscribe();
     }, [])
   );
   
 
-  // Manual pull-to-refresh action trigger (satisfies mobile gesture habits)
   const onRefresh = React.useCallback(() => {
     setRefreshing(true);
-    setTimeout(() => {setRefreshing(false)}, 1000)
+    setTimeout(() => {setRefreshing(false)}, 1000);
   }, []);
 
   const handleHabitPress = (habitId: string, habitTitle: string, habitCategory: string, habitStreak: number) => {
@@ -70,6 +83,100 @@ export default function HabitsScreen() {
       pathname: '/habit-detail',
       params: { id: habitId, title: habitTitle, category: habitCategory, streak: String(habitStreak) }
     });
+  };
+
+  const calculateStreakFromHistory = (history: Record<string, 'completed' | 'skipped' | 'failed'>) => {
+    let count = 0;
+    let checkDate = new Date();
+    
+    checkDate.setDate(checkDate.getDate() - 1);
+
+    while (true) {
+      const dateStr = checkDate.toISOString().split('T')[0];
+      const status = history[dateStr];
+
+      if (status === 'completed') {
+        count += 1;
+      } else if (status === 'skipped') {
+        // Skips don't break the streak window
+      } else {
+        break;
+      }
+      
+      checkDate.setDate(checkDate.getDate() - 1);
+    }
+    
+    return count;
+  };
+
+  const handleStatusSelect = async (status: 'completed' | 'skipped' | 'failed') => {
+    if(!activeHabit) return;
+
+    const todayStreak = new Date().toISOString().split('T')[0];
+    const docRef = doc(db, 'habits', activeHabit.id);
+
+    const previousStatusForToday = activeHabit.history[todayStreak];
+    let nextStreak = activeHabit.streak;
+
+    if (status === 'completed') {
+      if (previousStatusForToday !== 'completed') {
+        if (previousStatusForToday === 'failed') {
+          const baselineStreak = calculateStreakFromHistory(activeHabit.history);
+          nextStreak = baselineStreak + 1;
+        } else {
+          nextStreak += 1;
+        }
+      }
+    } else if (status === 'failed') {
+      nextStreak = 0;
+    } else if (status === 'skipped') {
+      if (previousStatusForToday === 'completed') {
+        nextStreak = Math.max(0, nextStreak - 1);
+      }
+    }
+
+    try {
+      await updateDoc(docRef, {
+        [`history.${todayStreak}`]: status,
+        streak: nextStreak
+      });
+
+      setModalVisible(false);
+      setActiveHabit(null);
+    } catch (error) {
+      console.error("Failed writing status patch payload", error);
+    }
+  };
+
+  const getWeeklySkipInfo = () => {
+    if (!activeHabit) return { canSkip: false, remainingSkips: 0 };
+    
+    const maxSkipsAllowed = 7 - activeHabit.frequency;
+    if (maxSkipsAllowed <= 0) return { canSkip: false, remainingSkips: 0 };
+
+    const today = new Date();
+    const currentDayOfWeek = today.getDay(); 
+    const distanceToMonday = currentDayOfWeek === 0 ? 6 : currentDayOfWeek - 1;
+    
+    const monday = new Date(today);
+    monday.setDate(today.getDate() - distanceToMonday);
+    
+    const weeklyDates: string[] = [];
+    for (let i = 0; i < 7; i++) {
+      const day = new Date(monday);
+      day.setDate(monday.getDate() + i);
+      weeklyDates.push(day.toISOString().split('T')[0]);
+    }
+
+    const skipsThisWeek = weeklyDates.reduce((count, dateStr) => {
+      return activeHabit.history[dateStr] === 'skipped' ? count + 1 : count;
+    }, 0);
+
+    const remainingSkips = maxSkipsAllowed - skipsThisWeek;
+    return {
+      canSkip: remainingSkips > 0,
+      remainingSkips: Math.max(0, remainingSkips)
+    };
   };
 
   return (
@@ -82,26 +189,20 @@ export default function HabitsScreen() {
           <Text style={{ color: '#94A3B8', marginTop: 12 }}>Loading your habits...</Text>
         </View>
       ) : (
-        /* Inject RefreshControl into the ScrollView component container */
         <ScrollView 
           style={styles.container}
           refreshControl={
             <RefreshControl 
               refreshing={refreshing} 
               onRefresh={onRefresh} 
-              tintColor={currentColors.tint} // Color of spinner on iOS
-              colors={[currentColors.tint]} // Color of spinner on Android
+              tintColor={currentColors.tint} 
+              colors={[currentColors.tint]} 
             />
           }
         >
           <View style={styles.headerRow}>
             <Text style={[styles.headerTitle, { color: currentColors.title, marginBottom: 0 }]}>My Habits</Text>
-            <TouchableOpacity 
-              style={[styles.addButton, { backgroundColor: currentColors.tint }]}
-              onPress={() => router.push('/add-habit')}
-            >
-              <Text style={styles.addButtonText}>New +</Text>
-            </TouchableOpacity>
+            <CustomButton text="New +" size="small" onPress={() => router.push('/add-habit')} />
           </View>
           
           {habits.length === 0 ? (
@@ -109,28 +210,68 @@ export default function HabitsScreen() {
               <Text style={{ color: '#94A3B8' }}>No habits found. Create one to get started!</Text>
             </View>
           ) : (
-            habits.map((habit) => (
-              <TouchableOpacity 
-                key={habit.id} 
-                style={[styles.habitCard, { backgroundColor: currentColors.cardBackground || (colorScheme === 'dark' ? '#1E293B' : '#FFFFFF') }]}
-                onPress={() => handleHabitPress(habit.id, habit.title, habit.category, habit.streak)}
-                activeOpacity={0.7}
-              >
-                <View style={styles.infoContainer}>
-                  <Text style={[styles.habitTitle, { color: currentColors.text }]}>{habit.title}</Text>
-                  <Text style={styles.habitCategory}>{habit.category}</Text>
-                </View>
+            habits.map((habit) => {
+              const todayStr = new Date().toISOString().split('T')[0];
+              const todayStatus = habit.history[todayStr];
 
-                <View style={[styles.badge, { backgroundColor: habit.streak >= 3 ? currentColors.streakBg : currentColors.badge }]}>
-                  <Text style={[styles.badgeText, { color: habit.streak >= 3 ? '#FF6B35' : currentColors.text }]}>
-                    {habit.streak >= 3 ? `🔥 ${habit.streak}` : habit.streak}
-                  </Text>
-                </View>
-              </TouchableOpacity>
-            ))
+              return (
+                <HabitCard
+                  key={habit.id}
+                  title={habit.title}
+                  category={habit.category}
+                  streak={habit.streak}
+                  todayStatus={todayStatus}
+                  onCardPress={() => handleHabitPress(habit.id, habit.title, habit.category, habit.streak)}
+                  onCheckInPress={() => { setActiveHabit(habit); setModalVisible(true); }}
+                />
+              );
+            })
           )}
         </ScrollView>
       )}
+      {activeHabit && (() => {
+        const { canSkip, remainingSkips } = getWeeklySkipInfo();
+        const isLowFrequency = activeHabit.frequency < 7;
+
+        const targetTodayStr = new Date().toISOString().split('T')[0];
+        const isTodayAlreadySkipped = activeHabit.history[targetTodayStr] === 'skipped';
+        const isMissedButtonLocked = isLowFrequency && (remainingSkips > 0 || isTodayAlreadySkipped);
+
+        const modalButtons: HabitModalButton[] = [
+          { text: 'Mark Done', variant: 'success', onPress: () => handleStatusSelect('completed') }
+        ];
+
+        if (isLowFrequency) {
+          modalButtons.push({
+            text: canSkip ? `Skip Day (${remainingSkips} left)` : 'No Skips Remaining',
+            variant: canSkip ? 'neutral' : 'outline',
+            disabled: !canSkip,
+            onPress: () => handleStatusSelect('skipped')
+          });
+        }
+
+        modalButtons.push({
+          text: isMissedButtonLocked ? '🔒 Use Your Skips First' : 'Missed / Not Done',
+          variant: isMissedButtonLocked ? 'neutral' : 'danger',
+          disabled: isMissedButtonLocked,
+          onPress: () => handleStatusSelect('failed')
+        });
+
+        modalButtons.push({
+          text: 'Cancel',
+          variant: 'outline',
+          onPress: () => { setModalVisible(false); setActiveHabit(null); }
+        });
+
+        return (
+          <CustomModal
+            visible={modalVisible}
+            title={`Check In: ${activeHabit.title}`}
+            onClose={() => { setModalVisible(false); setActiveHabit(null); }}
+            buttons={modalButtons}
+          />
+        );
+      })()}
     </SafeAreaView>
   );
 }
@@ -141,12 +282,4 @@ const styles = StyleSheet.create({
   centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   headerTitle: { fontSize: 28, fontWeight: 'bold' },
-  addButton: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 12 },
-  addButtonText: { color: '#FFF', fontWeight: '700', fontSize: 14 },
-  habitCard: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 16, marginBottom: 12 },
-  infoContainer: { flex: 1 },
-  habitTitle: { fontSize: 18, fontWeight: '600', marginBottom: 4 },
-  habitCategory: { fontSize: 14, color: '#94A3B8' },
-  badge: { width: 58, height: 32, borderRadius: 10, justifyContent: 'center', alignItems: 'center' },
-  badgeText: { fontSize: 13, fontWeight: 'bold' },
 });
