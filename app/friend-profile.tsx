@@ -1,11 +1,12 @@
 import React from 'react';
-import { StyleSheet, Text, View, Image, useColorScheme } from 'react-native';
+import { StyleSheet, Text, View, Image } from 'react-native';
 import { useLocalSearchParams, Stack } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAppTheme } from '@/context/ThemeContext';
 import Colors from '../constants/Colors';
 
 export default function FriendProfileScreen() {
-  const colorScheme = useColorScheme() ?? 'light';
+  const { theme: colorScheme } = useAppTheme();
   const currentColors = Colors[colorScheme];
 
   // hook that grabs the parameters sent through the nav link

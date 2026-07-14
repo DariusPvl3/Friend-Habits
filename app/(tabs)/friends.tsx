@@ -1,7 +1,8 @@
 import React from 'react';
-import { StyleSheet, Text, View, Image, TouchableOpacity, ScrollView, useColorScheme } from 'react-native';
+import { StyleSheet, Text, View, Image, TouchableOpacity, ScrollView } from 'react-native';
 import { Tabs, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAppTheme } from '@/context/ThemeContext';
 import Colors from '../../constants/Colors';
 
 // Friends tab
@@ -22,7 +23,7 @@ const FAKE_FRIENDS: Friend[] = [
 export default function FriendsScreen() {
   const router = useRouter();
 
-  const colorScheme = useColorScheme() ?? 'light';
+  const { theme: colorScheme } = useAppTheme();
   const currentColors = Colors[colorScheme];
 
   // This function handles what happens when a friend is clicked

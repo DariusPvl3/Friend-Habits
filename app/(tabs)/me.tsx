@@ -1,15 +1,20 @@
-import React from 'react';
-import { StyleSheet, Text, View, Image, TouchableOpacity, ScrollView, useColorScheme } from 'react-native';
-import { Tabs, useRouter } from 'expo-router';
+import React, { useCallback } from 'react';
+import { StyleSheet, Text, View, Image, TouchableOpacity, ScrollView } from 'react-native';
+import { Tabs, useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { signOut } from 'firebase/auth';
+import { useAuth } from '@/context/auth';
+import { auth } from '../../config/firebase'; 
 import Colors from '../../constants/Colors';
+import CustomButton from '@/components/CustomButton';
+import { useAppTheme } from '@/context/ThemeContext';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
 
-// Account tab
 interface SettingItem {
   id: string;
   title: string;
   icon: string; 
-  targetRoute: string; // The file name it should navigate to
+  targetRoute: string; 
 }
 
 interface SettingSection {
@@ -21,7 +26,6 @@ const SETTINGS_SECTIONS: SettingSection[] = [
   {
     sectionTitle: "Profile & Progress",
     items: [
-      { id: "details", title: "My Details", icon: "person-outline", targetRoute: "/profile-details" },
       { id: "stats", title: "Global Statistics", icon: "bar-chart-outline", targetRoute: "/statistics" },
     ],
   },
@@ -43,11 +47,27 @@ const SETTINGS_SECTIONS: SettingSection[] = [
 
 export default function AccountScreen() {
   const router = useRouter();
+  const { user } = useAuth(); 
+  const imgUri = user?.photoURL;
 
-  const colorScheme = useColorScheme() ?? 'light';
+  const { theme: colorScheme } = useAppTheme();
   const currentColors = Colors[colorScheme];
 
-  // This function handles what happens when an option is clicked
+  useFocusEffect(
+    useCallback(() => {
+      const refreshUserCache = async () => {
+        if (auth.currentUser) {
+          try {
+            await auth.currentUser.reload();
+          } catch (err) {
+            console.error("Failed to sync account screen tokens:", err);
+          }
+        }
+      };
+      refreshUserCache();
+    }, [])
+  );
+
   const handleSettingPress = (settingTitle: string, settingRoute: string) => {
     router.push({
       pathname: settingRoute as any,
@@ -55,25 +75,52 @@ export default function AccountScreen() {
     });
   };
 
+  const handleSignOut = async () => {
+    try {
+      await signOut(auth);
+    } catch (error) {
+      console.error("Error signing out user account session:", error);
+    }
+  };
+
   return (
-    // ScrollView allows the user to scroll vertically if the list gets long
     <SafeAreaView style={[styles.safeArea, { backgroundColor: currentColors.background }]}>
       <Tabs.Screen options={{ headerShown: false }} />
       
-      <ScrollView style={styles.container}>
+      <ScrollView style={styles.container} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
         <Text style={[styles.headerTitle, { color: currentColors.title }]}>My Account</Text>
-        
+        <TouchableOpacity 
+          style={[styles.profileCard, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#F1F5F9' }]} 
+          onPress={() => handleSettingPress("My Details", "/settings/profile-details")}
+        >
+          {imgUri ? (
+           <Image source={{uri: imgUri}} style={styles.profileAvatar}/>
+          ) : (
+            <View style={[styles.profileAvatar, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#E2E8F0', justifyContent: 'center', alignItems: 'center' }]}>
+              <MaterialCommunityIcons name="account" size={50} color="#94A3B8" />
+            </View>
+          )}
+          <View>
+            <Text style={[styles.usernameLabel, { color: currentColors.text }]}>{user?.displayName || 'Guest User'}</Text>
+            <Text style={styles.verifiedSubtext}>View & Edit Details</Text>
+          </View>
+          <View style={{ flex: 1 }} />
+          <MaterialCommunityIcons 
+            name="chevron-right" 
+            size={24} 
+            color="#94A3B8" 
+            style={{ marginRight: 4 }}
+          />
+        </TouchableOpacity>
+
         {/* Loop through the sections array */}
         {SETTINGS_SECTIONS.map((section) => (
-          // We wrap each section bundle in a fragment key box to keep React happy
           <React.Fragment key={section.sectionTitle}>
             
-            {/* 1. Render the clean Section Header Title String */}
             <Text style={[styles.sectionHeaderTitle, { color: '#94A3B8' }]}>
               {section.sectionTitle}
             </Text>
 
-            {/* 2. Direct, unbraced inner loop to map items within this section */}
             {section.items.map((item) => (
               <TouchableOpacity 
                 key={item.id} 
@@ -87,19 +134,26 @@ export default function AccountScreen() {
                   </Text>
                 </View>
                 
-                {/* Right Side: Clean chevron arrow symbol */}
-                <Text style={{ color: '#94A3B8', fontSize: 16 }}>➔</Text>
+                <MaterialCommunityIcons 
+                  name="chevron-right" 
+                  size={24} 
+                  color="#94A3B8" 
+                  style={{ marginRight: 4 }}
+                />
               </TouchableOpacity>
             ))}
             
           </React.Fragment>
         ))}
-        </ScrollView>
+
+        <View style={{ marginTop: 24 }}>
+          <CustomButton text="Log Out Account" variant="danger" onPress={handleSignOut} />
+        </View>
+      </ScrollView>
     </SafeAreaView>
   );
 }
 
-// Layout and Styling styles using Flexbox
 const styles = StyleSheet.create({
   container: {
     flex: 1,
@@ -114,41 +168,59 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     marginBottom: 20,
   },
+  profileCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 20,
+    borderRadius: 20,
+    marginBottom: 16,
+    gap: 16
+  },
+  avatarPlaceholder: {
+    fontSize: 32
+  },
+  usernameLabel: {
+    fontSize: 18,
+    fontWeight: '700'
+  },
+  verifiedSubtext: {
+    fontSize: 13,
+    color: '#94A3B8',
+    marginTop: 2
+  },
   sectionCard: {
-    flexDirection: 'row', // Aligns items horizontally
-    alignItems: 'center', // Centers elements vertically within the row
+    flexDirection: 'row', 
+    alignItems: 'center', 
     padding: 16,
     borderRadius: 16,
     marginBottom: 12,
-    // Soft shadow for light mode
     shadowColor: '#000',
     shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.05,
     shadowRadius: 8,
-    elevation: 2, // Shadow for Android devices
-  },
-  avatar: {
-    width: 50,
-    height: 50,
-    borderRadius: 25, // Making it half the width/height ensures a perfect circle
-    marginRight: 16,
+    elevation: 2, 
   },
   infoContainer: {
-    flex: 1, // Takes up all remaining available horizontal space
+    flex: 1, 
   },
   sectionName: {
-    fontSize: 18,
+    fontSize: 16,
     fontWeight: '600',
-    marginBottom: 4,
   },
-
   sectionHeaderTitle: {
-    fontSize: 14,
-    fontWeight: '600',
+    fontSize: 12,
+    fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1,
     marginTop: 16,
-    marginBottom: 8,
+    marginBottom: 10,
     paddingHorizontal: 4,
+  },
+  profileAvatar: {
+    width: 50,
+    height: 50,
+    borderRadius: 50, // Perfect circle for a profile header
+    borderWidth: 3,
+    borderColor: '#10B981',
   },
 });

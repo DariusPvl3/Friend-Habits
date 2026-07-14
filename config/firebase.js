@@ -1,6 +1,10 @@
 import { initializeApp, getApps, getApp } from "firebase/app";
 import { initializeAuth, getReactNativePersistence, getAuth } from "firebase/auth";
-import { getFirestore } from "firebase/firestore";
+import { 
+  initializeFirestore, 
+  persistentLocalCache, 
+  persistentMultipleTabManager 
+} from "firebase/firestore";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 const firebaseConfig = {
@@ -16,13 +20,22 @@ const app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
 
 let auth;
 try {
-  auth = getAuth(app);
-} catch (error) {
-  // Safe alternate persistence approach to satisfy Metro bundling
+  auth = getAuth(app); // If auth was already made during this session, grab it here
+} catch (e) {
+  // If it throws an error, it means it hasn't been initialized yet.
   auth = initializeAuth(app, {
     persistence: getReactNativePersistence(AsyncStorage),
   });
 }
 
-const db = getFirestore(app);
-export { app, auth, db };
+/** @type {import('firebase/auth').Auth} */
+const finalizedAuth = auth;
+
+// Cache rules pass cleanly inside the initial configuration payload setup row
+const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager()
+  })
+});
+
+export { app, finalizedAuth as auth, db };

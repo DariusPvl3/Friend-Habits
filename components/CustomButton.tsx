@@ -1,6 +1,7 @@
 import React from 'react';
-import { TouchableOpacity, Text, StyleSheet, useColorScheme } from 'react-native';
+import { TouchableOpacity, Text, StyleSheet } from 'react-native';
 import Colors from '../constants/Colors';
+import { useAppTheme } from '@/context/ThemeContext';
 
 interface CustomButtonProps {
   text: string;
@@ -17,7 +18,7 @@ export default function CustomButton({
   size = 'standard', 
   disabled = false 
 }: CustomButtonProps) {
-  const colorScheme = useColorScheme() ?? 'light';
+  const { theme: colorScheme } = useAppTheme();
   const currentColors = Colors[colorScheme];
 
   // Dynamic Variant Styles Mapping Matrix
@@ -68,7 +69,7 @@ export default function CustomButton({
   );
 }
 
-const styles = StyleSheet.create({
+const styles = StyleSheet.create({ 
   baseButton: {
     justifyContent: 'center',
     alignItems: 'center',

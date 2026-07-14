@@ -1,15 +1,20 @@
-import React from 'react';
-import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Image, useColorScheme } from 'react-native';
-import { Tabs, useRouter } from 'expo-router';
+import React, { useCallback, useState } from 'react';
+import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Image } from 'react-native';
+import { Tabs, useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import Colors from '../../constants/Colors';
+
+import { auth, db } from '../../config/firebase'; 
+import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
+import { useAppTheme } from '@/context/ThemeContext';
 
 interface HomeHabit {
   id: string;
   title: string;
   category: string;
-  streak: number;
-  completedToday: boolean;
+  streak: number; 
+  frequency: number;
+  history: Record<string, 'completed' | 'skipped' | 'failed'>;
 }
 
 // 1. Added minimal Friend definition for the dashboard preview pulse
@@ -20,12 +25,6 @@ interface HomeFriend {
   progress: number; // e.g., 0.0 to 1.0 (0% to 100%)
 }
 
-const FAKE_HABITS: HomeHabit[] = [
-  { id: '1', title: 'Gym', category: 'Sports', streak: 5, completedToday: true },
-  { id: '2', title: 'Deficit caloric', category: 'Health', streak: 3, completedToday: true },
-  { id: '3', title: 'Reading', category: 'Free time', streak: 2, completedToday: false },
-];
-
 const FAKE_FRIENDS: HomeFriend[] = [
   { id: '1', name: 'Alexandru', avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150', progress: 0.1 },  // 100% Done
   { id: '2', name: 'Elena', avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150', progress: 1.0 }, // 66% Done
@@ -34,30 +33,119 @@ const FAKE_FRIENDS: HomeFriend[] = [
 
 export default function HomeScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme() ?? 'light';
+  const { theme: colorScheme } = useAppTheme();
   const currentColors = Colors[colorScheme];
 
-  const totalHabits = FAKE_HABITS.length;
-  const completedHabits = FAKE_HABITS.filter(h => h.completedToday).length;
+  const currentUser = auth.currentUser;
+
+  const [habits, setHabits] = useState<HomeHabit[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const todayStr = new Date().toISOString().split('T')[0];
+
+  const totalHabits = habits.length;
+  const completedHabits = habits.filter(h => h.history[todayStr] === 'completed').length;
   const completionPercentage = totalHabits > 0 ? Math.round((completedHabits / totalHabits) * 100) : 0;
-  const remainingHabits = FAKE_HABITS.filter(h => !h.completedToday);
+  const remainingHabits = habits.filter(h => h.history[todayStr] === undefined);
+
+  useFocusEffect(
+    useCallback(() => {
+    const habitsCollection = collection(db, 'habits');
+      const q = query(
+        habitsCollection, 
+        where('userId', '==', currentUser?.uid || 'unknown')
+      );
+        
+      const unsubscribe = onSnapshot(q, (querySnapshot) => {
+        const loadedHabits: HomeHabit[] = [];
+          
+        querySnapshot.forEach((doc) => {
+          const data = doc.data();
+          loadedHabits.push({
+            id: doc.id,
+            title: data.title || 'Untitled',
+            category: data.category || 'General',
+            streak: Number(data.streak) || 0,
+            frequency: Number(data.frequency) || 7,
+            history: data.history || {},
+          });
+        });
+
+        setHabits(loadedHabits);
+        setLoading(false);
+        setRefreshing(false);
+      }, (error) => {
+        console.error("Live streaming habits failed: ", error);
+        setLoading(false);
+        setRefreshing(false);
+      });
+
+      return () => unsubscribe();
+    }, [])
+  );
 
   const getRingColor = (progress: number, tintColor: string) => {
-    if (progress === 1) return tintColor;    // Full Emerald Green for completion!
-    if (progress >= 0.5) return '#F59E0B';   // Vibrant Amber/Orange for passing half
-    if (progress > 0) return '#94A3B8';      // Indigo Blue if they just started
-    return '#F30612';                        // Muted Slate Gray if they are at 0%
+    if (progress === 1) return tintColor; // Full Emerald Green for completion!
+    if (progress >= 0.5) return '#F59E0B'; // Vibrant Amber/Orange for passing half
+    if (progress > 0) return '#94A3B8';
+    return '#F30612';
+  };
+
+  const calculateStreakFromHistory = (history: Record<string, 'completed' | 'skipped' | 'failed'>) => {
+    let count = 0;
+    let checkDate = new Date();
+    
+    // Start checking backward from yesterday
+    checkDate.setDate(checkDate.getDate() - 1);
+
+    while (true) {
+      const dateStr = checkDate.toISOString().split('T')[0];
+      const status = history[dateStr];
+
+      if (status === 'completed') {
+        count += 1;
+      } else if (status === 'skipped') {
+        // Skips pass through safely without breaking the streak loop
+      } else {
+        break; // Streak was officially broken here
+      }
+      
+      checkDate.setDate(checkDate.getDate() - 1);
+    }
+    
+    return count;
+  };
+
+  const handleQuickCheckIn = async (habitId: string, currentHistory: Record<string, 'completed' | 'skipped' | 'failed'>) => {
+    try {
+      const docRef = doc(db, 'habits', habitId);
+      
+      // Calculate what the streak should be based on yesterday backwards, plus today's click!
+      const baselineStreak = calculateStreakFromHistory(currentHistory);
+      const nextStreak = baselineStreak + 1;
+
+      // Optimistically push the update to Firestore
+      await updateDoc(docRef, {
+        [`history.${todayStr}`]: 'completed',
+        streak: nextStreak
+      });
+    } catch (error) {
+      console.error("Failed to execute quick home check-in:", error);
+    }
   };
 
   return (
     <SafeAreaView style={[styles.safeArea, { backgroundColor: currentColors.background }]}>
       <Tabs.Screen options={{ headerShown: false }} />
       
-      <ScrollView style={styles.container} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.container} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Section 1: Greeting */}
         <View style={styles.headerSection}>
-          <Text style={styles.dateSubtext}>THURSDAY, JUNE 25</Text>
-          <Text style={[styles.greetingTitle, { color: currentColors.text }]}>Hello, Darius! 👋</Text>
+          <Text style={styles.dateSubtext}>
+            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' }).toUpperCase()}
+          </Text>
+          <Text style={[styles.greetingTitle, { color: currentColors.text }]}>Hello, {currentUser?.displayName || 'User'}! 👋</Text>
         </View>
 
         {/* Section 2: Overall Daily Progress */}
@@ -119,20 +207,20 @@ export default function HomeScreen() {
           </View>
         ) : (
           remainingHabits.map((habit) => (
-            <TouchableOpacity 
-              key={habit.id}
-              style={[styles.habitCard, { backgroundColor: currentColors.cardBackground || (colorScheme === 'dark' ? '#1E293B' : '#FFFFFF') }]}
-              activeOpacity={0.8}
-              onPress={() => alert(`Marking "${habit.title}" as completed!`)}
-            >
-              <View style={[styles.checkboxCircle, { borderColor: currentColors.tint }]} />
-              <View style={styles.habitInfo}>
-                <Text style={[styles.habitTitle, { color: currentColors.text }]}>{habit.title}</Text>
-                <Text style={styles.habitCategory}>{habit.category}</Text>
-              </View>
-              <Text style={styles.streakText}>🔥 {habit.streak}</Text>
-            </TouchableOpacity>
-          ))
+              <TouchableOpacity 
+                key={habit.id}
+                style={[styles.habitCard, { backgroundColor: currentColors.cardBackground || (colorScheme === 'dark' ? '#1E293B' : '#FFFFFF') }]}
+                activeOpacity={0.8}
+                onPress={() => handleQuickCheckIn(habit.id, habit.history)}
+              >
+                <View style={[styles.checkboxCircle, { borderColor: currentColors.tint }]} />
+                <View style={styles.habitInfo}>
+                  <Text style={[styles.habitTitle, { color: currentColors.text }]}>{habit.title}</Text>
+                  <Text style={styles.habitCategory}>{habit.category}</Text>
+                </View>
+                <Text style={styles.streakText}>🔥 {habit.streak}</Text>
+              </TouchableOpacity>
+            ))
         )}
       </ScrollView>
     </SafeAreaView>

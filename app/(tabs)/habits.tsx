@@ -1,10 +1,11 @@
 import React, { useState, useCallback } from 'react';
-import { StyleSheet, Text, View, ScrollView, useColorScheme, ActivityIndicator, RefreshControl } from 'react-native';
+import { StyleSheet, Text, View, ScrollView, ActivityIndicator, RefreshControl } from 'react-native';
 import { Tabs, useRouter, useFocusEffect } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAppTheme } from '@/context/ThemeContext';
 import Colors from '../../constants/Colors';
 
-import { db } from '../../config/firebase'; 
+import { auth, db } from '../../config/firebase'; 
 import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
 import CustomButton from '@/components/CustomButton';
 import HabitCard from '@/components/HabitCard';
@@ -28,8 +29,10 @@ interface HabitModalButton {
 
 export default function HabitsScreen() {
   const router = useRouter();
-  const colorScheme = useColorScheme() ?? 'light';
+  const { theme: colorScheme } = useAppTheme();
   const currentColors = Colors[colorScheme];
+
+  const currentUser = auth.currentUser;
 
   const [habits, setHabits] = useState<Habit[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,7 +45,10 @@ export default function HabitsScreen() {
   useFocusEffect(
     useCallback(() => {
       const habitsCollection = collection(db, 'habits');
-      const q = query(habitsCollection, where('userId', '==', 'test_user_1'));
+      const q = query(
+        habitsCollection, 
+        where('userId', '==', currentUser?.uid || 'unknown')
+      );
       
       const unsubscribe = onSnapshot(q, (querySnapshot) => {
         const loadedHabits: Habit[] = [];
@@ -89,7 +95,12 @@ export default function HabitsScreen() {
     let count = 0;
     let checkDate = new Date();
     
-    checkDate.setDate(checkDate.getDate() - 1);
+    const todayStr = checkDate.toISOString().split('T')[0];
+    const todayStatus = history[todayStr];
+
+    if(todayStatus !== 'completed' && todayStatus !== 'skipped'){
+      checkDate.setDate(checkDate.getDate() - 1);
+    }
 
     while (true) {
       const dateStr = checkDate.toISOString().split('T')[0];
@@ -98,8 +109,9 @@ export default function HabitsScreen() {
       if (status === 'completed') {
         count += 1;
       } else if (status === 'skipped') {
-        // Skips don't break the streak window
+        // Skips don't break the streak
       } else {
+        // If status is 'failed' or 'undefined' (not logged in app), streak breaks here
         break;
       }
       
@@ -115,25 +127,12 @@ export default function HabitsScreen() {
     const todayStreak = new Date().toISOString().split('T')[0];
     const docRef = doc(db, 'habits', activeHabit.id);
 
-    const previousStatusForToday = activeHabit.history[todayStreak];
-    let nextStreak = activeHabit.streak;
+    const updatedHistory = {
+      ...activeHabit.history,
+      [todayStreak]: status
+    };
 
-    if (status === 'completed') {
-      if (previousStatusForToday !== 'completed') {
-        if (previousStatusForToday === 'failed') {
-          const baselineStreak = calculateStreakFromHistory(activeHabit.history);
-          nextStreak = baselineStreak + 1;
-        } else {
-          nextStreak += 1;
-        }
-      }
-    } else if (status === 'failed') {
-      nextStreak = 0;
-    } else if (status === 'skipped') {
-      if (previousStatusForToday === 'completed') {
-        nextStreak = Math.max(0, nextStreak - 1);
-      }
-    }
+    const nextStreak = calculateStreakFromHistory(updatedHistory);
 
     try {
       await updateDoc(docRef, {
@@ -199,6 +198,7 @@ export default function HabitsScreen() {
               colors={[currentColors.tint]} 
             />
           }
+          contentContainerStyle={{ paddingBottom: 40 }}
         >
           <View style={styles.headerRow}>
             <Text style={[styles.headerTitle, { color: currentColors.title, marginBottom: 0 }]}>My Habits</Text>
@@ -238,7 +238,7 @@ export default function HabitsScreen() {
         const isMissedButtonLocked = isLowFrequency && (remainingSkips > 0 || isTodayAlreadySkipped);
 
         const modalButtons: HabitModalButton[] = [
-          { text: 'Mark Done', variant: 'success', onPress: () => handleStatusSelect('completed') }
+          { text: 'Mark Done', variant: 'tint', onPress: () => handleStatusSelect('completed') }
         ];
 
         if (isLowFrequency) {

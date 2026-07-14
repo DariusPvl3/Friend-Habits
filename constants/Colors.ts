@@ -1,5 +1,5 @@
-const tintColorLight = '#047857'; // Emerald Green
-const tintColorDark = '#34D399';
+const tintColorLight = '#047857'; // Deep Emerald Green
+const tintColorDark = '#34D399';  // Vibrant Mint/Emerald
 
 export default {
   light: {
@@ -11,7 +11,10 @@ export default {
     cardBackground: '#FFFFFF', 
     title: '#047857',
     streakBg: '#FFEDD5',
-    badge: '#E2E8F0'
+    badge: '#E2E8F0',
+    statusCompleted: '#059669',
+    statusSkipped: '#64748B',
+    statusFailed: '#DC2626',
   },
   dark: {
     text: '#F1F5F9',
@@ -23,5 +26,8 @@ export default {
     title: '#34D399',
     streakBg: '#2A1B18',
     badge: '#64748B',
+    statusCompleted: '#34D399',
+    statusSkipped: '#475569',
+    statusFailed: '#EF4444',
   },
 };

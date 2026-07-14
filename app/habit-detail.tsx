@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { Alert, StyleSheet, Text, View, TouchableOpacity, useColorScheme, TextInput, ScrollView } from 'react-native';
+import { Alert, StyleSheet, Text, View, TouchableOpacity, TextInput, ScrollView } from 'react-native';
 import { useLocalSearchParams, Stack, useRouter, useNavigation } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Calendar } from 'react-native-calendars';
+import { useAppTheme } from '@/context/ThemeContext';
 import Colors from '../constants/Colors';
 
 import { db } from '../config/firebase';
@@ -17,7 +18,7 @@ export default function HabitDetailScreen() {
   
   const { id, title, category, streak, frequency: initialFrequency } = useLocalSearchParams();
 
-  const colorScheme = useColorScheme() ?? 'light';
+  const { theme: colorScheme } = useAppTheme();
   const currentColors = Colors[colorScheme];
 
   const [isEditing, setIsEditing] = useState(false);

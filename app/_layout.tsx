@@ -1,32 +1,22 @@
-import FontAwesome from '@expo/vector-icons/FontAwesome';
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { 
+  DarkTheme as NavigationDarkTheme, 
+  DefaultTheme as NavigationDefaultTheme, 
+  ThemeProvider as NavContainer
+} from '@react-navigation/native';
 import { useFonts } from 'expo-font';
-import { Stack } from 'expo-router';
+import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import Colors from '@/constants/Colors';
 import 'react-native-reanimated';
+import { ThemeProvider, useAppTheme } from '@/context/ThemeContext';
+import { AuthProvider, useAuth } from '../context/auth'; 
 
-import { useColorScheme } from '@/components/useColorScheme';
-
-export {
-  // Catch any errors thrown by the Layout component.
-  ErrorBoundary,
-} from 'expo-router';
-
-export const unstable_settings = {
-  // Ensure that reloading on `/modal` keeps a back button present.
-  initialRouteName: '(tabs)',
-};
-
-// Prevent the splash screen from auto-hiding before asset loading is complete.
 SplashScreen.preventAutoHideAsync();
 
-// 🌟 1. RESTORED: The main entry controller hook that manages resources and the splash screen!
 export default function RootLayout() {
   const [loaded, error] = useFonts({
     SpaceMono: require('../assets/fonts/SpaceMono-Regular.ttf'),
-    ...FontAwesome.font,
   });
 
   useEffect(() => {
@@ -39,38 +29,79 @@ export default function RootLayout() {
     }
   }, [loaded]);
 
-  if (!loaded) {
-    return null;
-  }
+  if (!loaded) return null;
 
-  return <RootLayoutNav />;
+  return (
+    <ThemeProvider>
+      <AuthProvider>
+        <RootLayoutNav />
+      </AuthProvider>
+    </ThemeProvider>
+  );
 }
 
 function RootLayoutNav() {
-  const colorScheme = useColorScheme();
-  const currentColors = Colors[colorScheme ?? 'light'];
+  const { user, loading } = useAuth(); 
+  const segments = useSegments(); 
+  const router = useRouter();
+  const { theme } = useAppTheme();
+  const currentColors = Colors[theme];
+
+  useEffect(() => {
+    if (loading) return; 
+
+    const inAuthGroup = segments[0] === '(auth)';
+    const inOnboarding = segments[0] === 'profile-creation';
+
+    if (!user) {
+      if (!inAuthGroup) {
+        router.replace('/(auth)/login');
+      }
+    } else {
+      if (!user.displayName) {
+        if (!inOnboarding) {
+          router.replace('/profile-creation');
+        }
+      } else {
+        if (inAuthGroup || inOnboarding) {
+          router.replace('/(tabs)/home');
+        }
+      }
+    }
+  }, [user, loading, segments]);
+
+  if (loading) {
+    return null;
+  }
 
   const CustomNavigationTheme = {
-    ...(colorScheme === 'dark' ? DarkTheme : DefaultTheme),
+    ...(theme === 'dark' ? NavigationDarkTheme : NavigationDefaultTheme),
     colors: {
-      ...(colorScheme === 'dark' ? DarkTheme.colors : DefaultTheme.colors),
+      ...(theme === 'dark' ? NavigationDarkTheme.colors : NavigationDefaultTheme.colors),
       background: currentColors.background,
-      card: currentColors.background,
+      card: currentColors.cardBackground || currentColors.background, 
+      text: currentColors.text,
     },
   };
 
   return (
-    <ThemeProvider value={CustomNavigationTheme}>
-      <Stack>
+    <NavContainer value={CustomNavigationTheme}>
+      <Stack 
+        screenOptions={{ 
+          animation: 'slide_from_right',
+          contentStyle: { backgroundColor: currentColors.background }, 
+          headerStyle: { backgroundColor: currentColors.cardBackground || currentColors.background }, 
+          headerTintColor: currentColors.text,  
+          headerTitleStyle: { fontWeight: 'bold' },
+        }}
+      >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen 
-          name="habit-detail" 
-          options={{ 
-            headerShown: true,
-            animation: 'slide_from_right'
-          }} 
-        />
-    </Stack>
-    </ThemeProvider>
+        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
+        <Stack.Screen name="profile-creation" options={{ headerShown: false, gestureEnabled: false }} />
+        <Stack.Screen name="settings" options={{ headerShown: false }} />
+        <Stack.Screen name="habit-detail" options={{ headerShown: true }} />
+        <Stack.Screen name="add-habit" options={{ headerShown: true, title: 'New Habit' }} />
+      </Stack>
+    </NavContainer>
   );
 }

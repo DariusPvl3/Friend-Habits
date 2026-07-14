@@ -1,6 +1,7 @@
 import React from 'react';
-import { StyleSheet, Text, View, TouchableOpacity, useColorScheme } from 'react-native';
+import { StyleSheet, Text, View, TouchableOpacity } from 'react-native';
 import Colors from '../constants/Colors';
+import { useAppTheme } from '@/context/ThemeContext';
 
 interface HabitCardProps {
   title: string;
@@ -19,13 +20,13 @@ export default function HabitCard({
   onCardPress,
   onCheckInPress
 }: HabitCardProps) {
-  const colorScheme = useColorScheme() ?? 'light';
+  const { theme: colorScheme } = useAppTheme();
   const currentColors = Colors[colorScheme];
 
   const circleStyles = {
-    completed: { backgroundColor: '#34D399', borderColor: '#34D399' },
-    skipped:   { backgroundColor: '#64748B', borderColor: '#64748B' },
-    failed:    { backgroundColor: '#EF4444', borderColor: '#EF4444' },
+    completed: { backgroundColor: currentColors.statusCompleted, borderColor: currentColors.statusCompleted },
+    skipped:   { backgroundColor: currentColors.statusSkipped, borderColor: currentColors.statusSkipped },
+    failed:    { backgroundColor: currentColors.statusFailed, borderColor: currentColors.statusFailed },
     undefined: { backgroundColor: 'transparent', borderColor: currentColors.tint }
   };
 
@@ -33,7 +34,7 @@ export default function HabitCard({
 
   return (
     <TouchableOpacity 
-      style={[styles.habitCard, { backgroundColor: currentColors.cardBackground || (colorScheme === 'dark' ? '#1E293B' : '#FFFFFF') }]}
+      style={[styles.habitCard, { backgroundColor: currentColors.cardBackground }]}
       onPress={onCardPress}
       activeOpacity={0.7}
     >
@@ -62,7 +63,18 @@ export default function HabitCard({
 }
 
 const styles = StyleSheet.create({
-  habitCard: { flexDirection: 'row', alignItems: 'center', padding: 16, borderRadius: 16, marginBottom: 12 },
+  habitCard: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    padding: 16, 
+    borderRadius: 16, 
+    marginBottom: 12,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.04,
+    shadowRadius: 6,
+    elevation: 2,
+  },
   infoContainer: { flex: 1 },
   habitTitle: { fontSize: 18, fontWeight: '600', marginBottom: 4 },
   habitCategory: { fontSize: 14, color: '#94A3B8' },

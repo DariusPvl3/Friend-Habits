@@ -1,6 +1,7 @@
 import React from 'react';
-import { StyleSheet, Text, View, Modal, useColorScheme } from 'react-native';
+import { StyleSheet, Text, View, Modal } from 'react-native';
 import CustomButton from './CustomButton';
+import { useAppTheme } from '@/context/ThemeContext';
 
 interface ModalButtonConfig {
   text: string;
@@ -25,7 +26,7 @@ export default function CustomModal({
   buttons,
   onClose
 }: CustomModalProps) {
-  const colorScheme = useColorScheme() ?? 'light';
+  const { theme: colorScheme } = useAppTheme();
 
   return (
     <Modal
@@ -38,7 +39,7 @@ export default function CustomModal({
         <View style={[styles.modalCard, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFF' }]}>
           
           <Text style={[styles.modalTitle, { color: colorScheme === 'dark' ? '#FFF' : '#0F172A' }]}>
-            title
+            {title}
           </Text>
 
           {description && (
@@ -60,7 +61,6 @@ export default function CustomModal({
               </View>
             ))}
           </View>
-
         </View>
       </View>
     </Modal>
