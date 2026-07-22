@@ -60,7 +60,7 @@ function RootLayoutNav() {
     } else {
       if (!user.displayName) {
         if (!inOnboarding) {
-          router.replace('/profile-creation');
+          router.replace({ pathname: '/profile-editor', params: {mode: 'create'}});
         }
       } else {
         if (inAuthGroup || inOnboarding) {
@@ -97,7 +97,7 @@ function RootLayoutNav() {
       >
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        <Stack.Screen name="profile-creation" options={{ headerShown: false, gestureEnabled: false }} />
+        <Stack.Screen name="profile-editor" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="settings" options={{ headerShown: false }} />
         <Stack.Screen name="habit-detail" options={{ headerShown: true }} />
         <Stack.Screen name="add-habit" options={{ headerShown: true, title: 'New Habit' }} />

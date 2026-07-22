@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "417219872354",
+    "project_id": "friendhabits",
+    "storage_bucket": "friendhabits.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:417219872354:android:2ec6ea2cf3a049458ff33b",
+        "android_client_info": {
+          "package_name": "com.dariuspvl.friendhabits"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBMkGqzVhNv_YDfndCizq6ReIlz8kNv6mE"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

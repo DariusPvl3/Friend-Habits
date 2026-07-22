@@ -1,9 +1,5 @@
-import { View, Text } from 'react-native';
+import NotificationsSettings from "@/screens/settings/notifications";
 
-export default function NotificationsSettings() {
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <Text>Notifications Settings Placeholder</Text>
-    </View>
-  );
+export default function NotificationsSettingsRoute () {
+  return <NotificationsSettings/>
 }

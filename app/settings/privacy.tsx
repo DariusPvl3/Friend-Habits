@@ -1,9 +1,5 @@
-import { View, Text } from 'react-native';
+import PrivacySettings from "@/screens/settings/privacy";
 
-export default function PrivacySettings() {
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
-      <Text>Privacy Settings Placeholder</Text>
-    </View>
-  );
+export default function PrivacySettingsRoute () {
+  return <PrivacySettings/>
 }

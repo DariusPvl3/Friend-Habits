@@ -18,7 +18,7 @@ export default function SettingsLayout() {
         headerTitleStyle: { fontWeight: 'bold' },
       }}
     >
-      <Stack.Screen name="profile-details" options={{ title: 'Edit Profile' }} />
+      <Stack.Screen name="profile-editor" options={{ title: 'Edit Profile' }} />
       <Stack.Screen name="theme" options={{ title: 'Theme Settings' }} />
       <Stack.Screen name="account" options={{ title: 'Account Settings' }} />
       <Stack.Screen name="notifications" options={{ title: 'Notifications' }} />
