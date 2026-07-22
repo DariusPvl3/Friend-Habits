@@ -44,3 +44,5 @@ yarn-error.*
 # Editor setups
 .vscode/
 .idea/
+
+google-services.json
