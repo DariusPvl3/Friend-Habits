@@ -101,6 +101,7 @@ function RootLayoutNav() {
         <Stack.Screen name="settings" options={{ headerShown: false }} />
         <Stack.Screen name="habit-detail" options={{ headerShown: true }} />
         <Stack.Screen name="add-habit" options={{ headerShown: true, title: 'New Habit' }} />
+        <Stack.Screen name="add-friend" options={{headerShown: true, title: 'Search by Username'}}/>
       </Stack>
     </NavContainer>
   );

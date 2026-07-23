@@ -6,6 +6,7 @@ import { useAppTheme } from '@/context/ThemeContext';
 import Colors from '../../constants/Colors';
 import { defaultStyles } from '@/constants/GlobalStyles';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import CustomButton from '@/components/CustomButton';
 
 // Friends tab
 interface Friend {
@@ -48,12 +49,18 @@ export default function FriendsScreen() {
       
       <ScrollView style={defaultStyles.container}>
         <View style={[defaultStyles.headerRow]}>
-          <Text style={[defaultStyles.headerTitle, { color: currentColors.title }]}>My Friends</Text>
+          <Text style={[defaultStyles.headerTitle, { color: currentColors.title, marginBottom: 0 }]}>My Friends</Text>
+          <CustomButton text="Add Friend +" size="small" onPress={() => router.push('/add-friend')} />
         </View>
         
         {/* Loop through the array and render custom card layout */}
         {FAKE_FRIENDS.map((friend) => (
-          <TouchableOpacity key={friend.id} style={[styles.friendCard, { backgroundColor: currentColors.cardBackground || (colorScheme === 'dark' ? '#1E293B' : '#FFFFFF') }]}>
+          <TouchableOpacity 
+            key={friend.id} 
+            style={[defaultStyles.friendCard, { backgroundColor: currentColors.cardBackground || (colorScheme === 'dark' ? '#1E293B' : '#FFFFFF') }]}
+            onPress={() => handleFriendPress(friend.name, friend.dailyProgress, friend.avatarUrl)}
+            activeOpacity={0.7}
+          >
             
             {/* Left: Friend Profile Picture */}
             {friend.avatarUrl ? (
@@ -72,8 +79,8 @@ export default function FriendsScreen() {
             )}
 
             {/* Center: Friend Info Text */}
-            <View style={styles.infoContainer}>
-                <Text style={[styles.friendName, { color: currentColors.text }]}>{friend.name}</Text>
+            <View style={defaultStyles.infoContainer}>
+                <Text style={[defaultStyles.friendName, { color: currentColors.text }]}>{friend.name}</Text>
                 <Text style={styles.progressSubtext}>
                 {friend.dailyProgress === 1 
                     ? 'All habits completed!' 
@@ -101,27 +108,6 @@ export default function FriendsScreen() {
 }
 
 const styles = StyleSheet.create({
-  friendCard: {
-    flexDirection: 'row', // Aligns items horizontally (Image -> Text -> Badge)
-    alignItems: 'center', // Centers elements vertically within the row
-    padding: 16,
-    borderRadius: 16,
-    marginBottom: 12,
-    // Soft shadow for light mode
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2, // Shadow for Android devices
-  },
-  infoContainer: {
-    flex: 1, // Takes up all remaining available horizontal space
-  },
-  friendName: {
-    fontSize: 18,
-    fontWeight: '600',
-    marginBottom: 4,
-  },
   progressSubtext: {
     fontSize: 14,
     color: '#94A3B8', // Muted slate color for descriptions

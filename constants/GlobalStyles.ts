@@ -27,6 +27,9 @@ export const defaultStyles = StyleSheet.create({
     marginTop: 20, 
     marginBottom: 20 
   },
+  infoContainer: {
+    flex: 1,
+  },
   
   // --- Headers & Text ---
   headerBox: {
@@ -52,6 +55,11 @@ export const defaultStyles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '600',
     marginBottom: 8,
+  },
+  friendName: {
+    fontSize: 18,
+    fontWeight: '600',
+    marginBottom: 4,
   },
 
   // --- Forms & Inputs ---
@@ -82,6 +90,20 @@ export const defaultStyles = StyleSheet.create({
     shadowOpacity: 0.05,
     shadowRadius: 8,
     elevation: 2,
+  },
+
+  friendCard: {
+    flexDirection: 'row', // Aligns items horizontally (Image -> Text -> Badge)
+    alignItems: 'center', // Centers elements vertically within the row
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 12,
+    // Soft shadow for light mode
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 2, // Shadow for Android devices
   },
 
   // --- Flex Utilities ---
