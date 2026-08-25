@@ -16,6 +16,8 @@ import { MaterialCommunityIcons } from "@expo/vector-icons";
 import { Stack, useRouter } from "expo-router";
 import { useAppTheme } from "@/context/ThemeContext";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { searchUsers, sendFriendRequest } from '@/services/friendshipService';
+import { auth } from '@/config/firebase';
 import CustomModal from "@/components/CustomModal";
 
 interface User {
@@ -46,19 +48,23 @@ export default function AddFriendScreen() {
     "danger",
   );
 
-  const handleSearch = (text: string) => {
+  const handleSearch = async (text: string) => {
     setSearch(text);
     
-    if (text.trim().length === 0) {
+    if (text.trim().length < 2) {
       setFilteredData([]);
       return;
     }
 
-    const filtered = FAKE_USERS.filter(item =>
-      item.friendStatus !== 'friends' && 
-      item.name.toLowerCase().includes(text.toLowerCase())
-    );
-    setFilteredData(filtered);
+    // Get the current logged-in user's id
+    const currentUID = auth.currentUser?.uid;
+    if (!currentUID) return;
+
+    // Call your new service!
+    const results = await searchUsers(text.trim(), currentUID);
+    
+    // Update the UI
+    setFilteredData(results)
   };
 
   const handleUserPress = (userName: string) => {
@@ -68,11 +74,22 @@ export default function AddFriendScreen() {
     });
   };
 
-  const handleAddFriend = (userId: string) => {
+  const handleAddFriend = async (targetUID: string) => {
+    const currentUID = auth.currentUser?.uid;
+    if (!currentUID) return;
+
     setFilteredData(prev => 
-      prev.map(u => u.id === userId ? { ...u, friendStatus: 'pending' } : u)
+      prev.map(u => u.id === targetUID ? { ...u, friendStatus: 'pending' } : u)
     );
-    console.log(`Sent friend request to user: ${userId}`);
+
+    const result = await sendFriendRequest(currentUID, targetUID);
+
+    if (!result.success) {
+      setFilteredData(prev => 
+        prev.map(u => u.id === targetUID ? { ...u, friendStatus: 'none' } : u)
+      );
+      console.error("Failed to send request.");
+    }
   };
 
   const handleCancelRequest = (userId: string) => {
@@ -161,7 +178,7 @@ export default function AddFriendScreen() {
                 >
                     <TouchableOpacity 
                       style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
-                      onPress={() => handleUserPress(user.id)}
+                      onPress={() => handleUserPress(user.name)}
                     >
                       {user.avatarUrl ? (
                         <Image 
@@ -183,26 +200,34 @@ export default function AddFriendScreen() {
                       </View>
                     </TouchableOpacity>
 
-                    <TouchableOpacity 
-                      style={[
-                        styles.addButton, 
-                        user.friendStatus === 'pending' ? styles.pendingButton : styles.activeAddButton
-                      ]}
-                      onPress={() => {
-                        if (user.friendStatus === 'pending') {
-                          handleCancelRequest(user.id);
-                        } else {
-                          handleAddFriend(user.id);
-                        }
-                      }}
-                    >
-                      <Text style={[
-                        styles.addButtonText, 
-                        user.friendStatus === 'pending' ? styles.pendingText : styles.activeText
-                      ]}>
-                        {user.friendStatus === 'pending' ? 'Pending' : 'Add'}
-                      </Text>
-                    </TouchableOpacity>
+                    {user.friendStatus === 'friends' ? (
+                      <View style={[styles.addButton, styles.friendsButton]}>
+                        <Text style={[styles.addButtonText, styles.friendsText]}>
+                          Friends
+                        </Text>
+                      </View>
+                    ) : (
+                      <TouchableOpacity 
+                        style={[
+                          styles.addButton, 
+                          user.friendStatus === 'pending' ? styles.pendingButton : styles.activeAddButton
+                        ]}
+                        onPress={() => {
+                          if (user.friendStatus === 'pending') {
+                            handleCancelRequest(user.id);
+                          } else {
+                            handleAddFriend(user.id);
+                          }
+                        }}
+                      >
+                        <Text style={[
+                          styles.addButtonText, 
+                          user.friendStatus === 'pending' ? styles.pendingText : styles.activeText
+                        ]}>
+                          {user.friendStatus === 'pending' ? 'Pending' : 'Add'}
+                        </Text>
+                      </TouchableOpacity>
+                    )}
                 </View>
               ))}
               
@@ -303,5 +328,13 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginTop: 12,
     textAlign: 'center',
-  }
+  },
+  friendsButton: {
+    backgroundColor: 'transparent',
+    borderWidth: 1,
+    borderColor: '#10B981',
+  },
+  friendsText: {
+    color: '#10B981',
+  },
 });

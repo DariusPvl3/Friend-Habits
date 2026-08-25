@@ -109,7 +109,8 @@ export default function ProfileEditorScreen() {
           // Claim the new username
           batch.set(newUsernameRef, {
             uid: user.uid,
-            updatedAt: new Date().toISOString()
+            updatedAt: new Date().toISOString(),
+            avatarUrl: imageUri || null
           });
 
           // Delete the old username (Only if they aren't a brand new user creating a profile)
@@ -119,6 +120,14 @@ export default function ProfileEditorScreen() {
           }
 
           await batch.commit();
+        } else {
+          if (!isCreating && currentDisplayName) {
+            const currentUsernameRef = doc(db, 'usernames', currentDisplayName);
+            await setDoc(currentUsernameRef, {
+              avatarUrl: imageUri || null,
+              updatedAt: new Date().toISOString()
+            }, { merge: true });
+          }
         }
 
         // Update the native Auth profile metadata

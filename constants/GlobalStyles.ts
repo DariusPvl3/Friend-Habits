@@ -30,6 +30,11 @@ export const defaultStyles = StyleSheet.create({
   infoContainer: {
     flex: 1,
   },
+  centerContainer: { 
+    flex: 1, 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
   
   // --- Headers & Text ---
   headerBox: {
