@@ -19,20 +19,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { searchUsers, sendFriendRequest } from '@/services/friendshipService';
 import { auth } from '@/config/firebase';
 import CustomModal from "@/components/CustomModal";
-
-interface User {
-  id: string;
-  name: string;
-  avatarUrl: string;
-  friendStatus: 'friends' | 'pending' | 'none'; 
-}
-
-const FAKE_USERS: User[] = [
-  { id: '1', name: 'Alexandru', avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150', friendStatus: 'none'},
-  { id: '2', name: 'Elena', avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150', friendStatus: 'none' },
-  { id: '3', name: 'Mihai', avatarUrl: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150', friendStatus: 'friends' },
-  { id: '4', name: 'Alexandra', avatarUrl: '', friendStatus: 'pending' },
-];
+import { User } from "@/types";
 
 export default function AddFriendScreen() {
   const router = useRouter();
@@ -67,10 +54,15 @@ export default function AddFriendScreen() {
     setFilteredData(results)
   };
 
-  const handleUserPress = (userName: string) => {
+  const handleUserPress = (user: User) => {
     router.push({
-      pathname: '/friend-profile',
-      params: { name: userName, }
+      pathname: '/user-profile',
+      params: {
+        id: user.id,
+        name: user.name,
+        avatarUrl: user.avatarUrl,
+        friendStatus: user.friendStatus
+      }
     });
   };
 
@@ -178,7 +170,7 @@ export default function AddFriendScreen() {
                 >
                     <TouchableOpacity 
                       style={{ flex: 1, flexDirection: 'row', alignItems: 'center' }}
-                      onPress={() => handleUserPress(user.name)}
+                      onPress={() => handleUserPress(user)}
                     >
                       {user.avatarUrl ? (
                         <Image 

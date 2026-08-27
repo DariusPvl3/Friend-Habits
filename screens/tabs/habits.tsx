@@ -10,15 +10,7 @@ import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/f
 import CustomButton from '@/components/CustomButton';
 import HabitCard from '@/components/HabitCard';
 import CustomModal from '@/components/CustomModal';
-
-interface Habit {
-  id: string;
-  title: string;
-  category: string;
-  streak: number; 
-  frequency: number;
-  history: Record<string, 'completed' | 'skipped' | 'failed'>;
-}
+import { Habit } from '@/types';
 
 interface HabitModalButton {
   text: string;
@@ -62,6 +54,7 @@ export default function HabitsScreen() {
             streak: Number(data.streak) || 0,
             frequency: Number(data.frequency) || 7,
             history: data.history || {},
+            visibility: data.visibility || 'Private',
           });
         });
 
@@ -84,10 +77,17 @@ export default function HabitsScreen() {
     setTimeout(() => {setRefreshing(false)}, 1000);
   }, []);
 
-  const handleHabitPress = (habitId: string, habitTitle: string, habitCategory: string, habitStreak: number) => {
+  const handleHabitPress = (habit: Habit) => {
     router.push({
       pathname: '/habit-detail',
-      params: { id: habitId, title: habitTitle, category: habitCategory, streak: String(habitStreak) }
+      params: { 
+        id: habit.id, 
+        title: habit.title, 
+        category: habit.category, 
+        streak: String(habit.streak),
+        frequency: String(habit.frequency),
+        visibility: habit.visibility || 'Private'
+      }
     });
   };
 
@@ -235,7 +235,7 @@ export default function HabitsScreen() {
         >
           <View style={defaultStyles.headerRow}>
             <Text style={[defaultStyles.headerTitle, { color: currentColors.title, marginBottom: 0 }]}>My Habits</Text>
-            <CustomButton text="New +" size="small" onPress={() => router.push('/add-habit')} />
+            <CustomButton text="New +" size="small" onPress={() => router.push('/habit-editor')} />
           </View>
           
           {habits.length === 0 ? (
@@ -254,7 +254,7 @@ export default function HabitsScreen() {
                   category={habit.category}
                   streak={habit.streak}
                   todayStatus={todayStatus}
-                  onCardPress={() => handleHabitPress(habit.id, habit.title, habit.category, habit.streak)}
+                  onCardPress={() => handleHabitPress(habit)}
                   onCheckInPress={() => { setActiveHabit(habit); setModalVisible(true); }}
                 />
               );

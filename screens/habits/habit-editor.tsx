@@ -10,27 +10,45 @@ import {
   TouchableWithoutFeedback,
   Keyboard,
 } from "react-native";
-import { useRouter, Stack } from "expo-router";
+import { useRouter, Stack, useLocalSearchParams } from "expo-router";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useAppTheme } from "@/context/ThemeContext";
 import Colors from "../../constants/Colors";
 import { defaultStyles } from "@/constants/GlobalStyles";
 import { auth, db } from "../../config/firebase";
-import { collection, addDoc, serverTimestamp } from "firebase/firestore";
+import { collection, addDoc, serverTimestamp, doc, updateDoc } from "firebase/firestore";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
 
 const CATEGORIES = ["Sports", "Health", "Free time", "Work", "Study"];
+const VISIBILITY_OPTIONS = [
+  { label: "Private", icon: "lock-outline" },
+  { label: "Friends", icon: "account-group-outline" },
+  { label: "Public", icon: "earth" },
+];
 
-export default function AddHabitScreen() {
+export default function HabitEditorScreen() {
   const router = useRouter();
   const { theme: colorScheme } = useAppTheme();
   const currentColors = Colors[colorScheme];
-
   const currentUser = auth.currentUser;
 
+  const {
+    mode,
+    id,
+    title: initialTitle,
+    category: initialCategory,
+    frequency: initialFrequency,
+    visibility: initialVisibility
+  } = useLocalSearchParams();
+
+  const isEditing = mode === 'edit';
+
   // Form State
-  const [title, setTitle] = useState("");
-  const [selectedCategory, setSelectedCategory] = useState("Sports");
-  const [frequency, setFrequency] = useState(7);
+  const [title, setTitle] = useState(isEditing ? (initialTitle as string) : "");
+  const [selectedCategory, setSelectedCategory] = useState(isEditing ? (initialCategory as string) : "Sports");
+  const [frequency, setFrequency] = useState(isEditing ? Number(initialFrequency) : 7);
+  const [visibility, setVisibility] = useState(isEditing ? (initialVisibility as string) : "Private")
+
   const [isSaving, setIsSaving] = useState(false);
 
   const handleSave = async () => {
@@ -43,17 +61,28 @@ export default function AddHabitScreen() {
     setIsSaving(true);
 
     try {
-      // Push a brand new document straight into 'habits' collection folder
-      await addDoc(collection(db, "habits"), {
-        title: title.trim(),
-        category: selectedCategory,
-        frequency: frequency,
-        streak: 0, // New habits start at 0
-        completedToday: false, // Freshly added and waiting
-        userId: currentUser?.uid,
-        history: {},
-        createdAt: serverTimestamp(), // log server creation times
-      });
+      if(isEditing){
+        const docRef = doc(db, "habits", id as string);
+        await updateDoc(docRef, {
+          title: title.trim(),
+          category: selectedCategory,
+          frequency: frequency,
+          visibility: visibility
+        });
+      } else {
+        // Push a brand new document straight into 'habits' collection folder
+        await addDoc(collection(db, "habits"), {
+          title: title.trim(),
+          category: selectedCategory,
+          frequency: frequency,
+          streak: 0, // New habits start at 0
+          visibility: visibility,
+          completedToday: false,
+          userId: currentUser?.uid,
+          history: {},
+          createdAt: serverTimestamp(), // log server creation times
+        });
+      }
 
       // Slide back to the main habits list screen
       router.back();
@@ -68,17 +97,8 @@ export default function AddHabitScreen() {
     }
   };
 
-  const decrementCounter = () => {
-    if (frequency > 1) {
-      setFrequency(frequency - 1);
-    }
-  };
-
-  const incrementCounter = () => {
-    if (frequency < 7) {
-      setFrequency(frequency + 1);
-    }
-  };
+  const decrementCounter = () => { if (frequency > 1) { setFrequency(frequency - 1); } };
+  const incrementCounter = () => { if (frequency < 7) { setFrequency(frequency + 1); } };
 
   return (
     <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
@@ -91,7 +111,7 @@ export default function AddHabitScreen() {
         <Stack.Screen
           options={{
             headerShown: true,
-            title: "Create Habit",
+            title: isEditing ? "Edit Habit" : "Create Habit",
             headerTintColor: currentColors.tint,
             headerStyle: { backgroundColor: currentColors.background },
             animation: "slide_from_right",
@@ -186,6 +206,57 @@ export default function AddHabitScreen() {
               </TouchableOpacity>
             </View>
           </View>
+
+          <Text
+            style={[defaultStyles.label, { color: currentColors.text, marginTop: 24 }]}
+          >
+            Visibility
+          </Text>
+          <View style={styles.categoryGrid}>
+            {VISIBILITY_OPTIONS.map((option) => {
+              const isSelected = visibility === option.label;
+              const contentColor = isSelected
+                ? "#FFF"
+                : colorScheme === "dark"
+                  ? "#94A3B8"
+                  : "#475569";
+
+              return (
+                <TouchableOpacity
+                  key={option.label}
+                  style={[
+                    styles.categoryCard,
+                    {
+                      flexDirection: "row",
+                      alignItems: "center",
+                      gap: 6,
+                      backgroundColor: isSelected
+                        ? currentColors.tint
+                        : colorScheme === "dark"
+                          ? "#1E293B"
+                          : "#E2E8F0",
+                    },
+                  ]}
+                  onPress={() => setVisibility(option.label)}
+                >
+                  <MaterialCommunityIcons 
+                    name={option.icon as any} 
+                    size={16} 
+                    color={contentColor} 
+                  />
+                  <Text
+                    style={[
+                      styles.categoryText,
+                      { color: contentColor },
+                    ]}
+                  >
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              );
+            })}
+          </View>
+
           {/* Action Button Container */}
           <TouchableOpacity
             style={[styles.saveButton, { backgroundColor: currentColors.tint }]}
@@ -195,7 +266,9 @@ export default function AddHabitScreen() {
             {isSaving ? (
               <ActivityIndicator color="#FFF" />
             ) : (
-              <Text style={styles.saveButtonText}>Save Habit</Text>
+              <Text style={styles.saveButtonText}>
+                {isEditing ? "Save Changes" : "Save Habit"}
+              </Text>
             )}
           </TouchableOpacity>
         </View>

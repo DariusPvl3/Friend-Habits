@@ -10,13 +10,6 @@ import { subscribeToIncomingRequests, subscribeToFriends, respondToRequest } fro
 import { auth } from '@/config/firebase';
 import CustomButton from '@/components/CustomButton';
 
-interface Friend {
-  id: string;
-  name: string;
-  avatarUrl: string;
-  dailyProgress: number; 
-}
-
 export default function FriendsScreen() {
   const router = useRouter();
 
@@ -45,13 +38,15 @@ export default function FriendsScreen() {
     };
   }, []);
 
-  const handleFriendPress = (friendName: string, progress: number, avatar: string) => {
+  const handleFriendPress = (friend: any) => {
     router.push({
-      pathname: '/friend-profile',
+      pathname: '/user-profile',
       params: { 
-        name: friendName, 
-        progress: Math.round(progress * 100),
-        avatarUrl: avatar
+        id: friend.id,
+        name: friend.name, 
+        avatarUrl: friend.avatarUrl,
+        friendStatus: 'friends',
+        progress: Math.round(friend.dailyProgress * 100)
       }
     });
   };
@@ -161,7 +156,7 @@ export default function FriendsScreen() {
             <TouchableOpacity 
               key={friend.id} 
               style={[defaultStyles.friendCard, { backgroundColor: currentColors.cardBackground || (colorScheme === 'dark' ? '#1E293B' : '#FFFFFF') }]}
-              onPress={() => handleFriendPress(friend.name, friend.dailyProgress, friend.avatarUrl)}
+              onPress={() => handleFriendPress(friend)}
               activeOpacity={0.7}
             >
               {friend.avatarUrl ? (

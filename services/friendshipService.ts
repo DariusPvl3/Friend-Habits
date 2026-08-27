@@ -2,7 +2,7 @@ import { collection, doc, setDoc, query, where, onSnapshot, getDocs, getDoc, upd
 import { db } from '../config/firebase';
 
 export const searchUsers = async (searchText: string, currentUid: string) => {
-  if (!searchText.trim()) return [];
+  if (!searchText.trim().toLowerCase()) return [];
 
   try {
     const usernamesRef = collection(db, 'usernames');
@@ -174,3 +174,16 @@ export const respondToRequest = async (friendshipId: string, accept: boolean) =>
     return { success: false, error };
   }
 };
+
+export const removeFriend = async (currentUid: string, targetUid: string) => {
+  try{
+    const friendshipId = [currentUid, targetUid].sort().join('_');
+    const friendshipRef = doc(db, 'friendships', friendshipId);
+
+    await deleteDoc(friendshipRef);
+    console.log("Friendship successfully removed")
+  } catch(error){
+    console.error("Error removing friend:", error);
+    throw error;
+  }
+}

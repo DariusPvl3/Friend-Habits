@@ -1,42 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { Alert, StyleSheet, Text, View, TouchableOpacity, TextInput, ScrollView } from 'react-native';
-import { useLocalSearchParams, Stack, useRouter, useNavigation } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { Alert, StyleSheet, Text, View, ScrollView } from 'react-native';
+import { useLocalSearchParams, Stack, useRouter } from 'expo-router';
 import { Calendar } from 'react-native-calendars';
 import { useAppTheme } from '@/context/ThemeContext';
 import Colors from '../../constants/Colors';
 import { defaultStyles } from '@/constants/GlobalStyles';
 import { db } from '../../config/firebase';
-import { doc, updateDoc, deleteDoc, onSnapshot } from 'firebase/firestore';
+import { doc, deleteDoc, onSnapshot } from 'firebase/firestore';
 import CustomModal from '@/components/CustomModal';
 import CustomButton from '@/components/CustomButton';
 
-const CATEGORIES = ['Sports', 'Health', 'Free time', 'Work', 'Study'];
-
 export default function HabitDetailScreen() {
-  const router = useRouter();
-  
-  const { id, title, category, streak, frequency: initialFrequency } = useLocalSearchParams();
+  const router = useRouter();  
+  const { id, title, category, streak, frequency, visibility } = useLocalSearchParams();
+
+  const [liveTitle, setLiveTitle] = useState(title as string);
+  const [liveCategory, setLiveCategory] = useState(category as string);
+  const [liveFrequency, setLiveFrequency] = useState(frequency as string);
+  const [liveVisibility, setLiveVisibility] = useState(visibility as string);
+  const [habitHistory, setHabitHistory] = useState<Record<string, 'completed' | 'skipped' | 'failed'>>({});
 
   const { theme: colorScheme } = useAppTheme();
   const currentColors = Colors[colorScheme];
-
-  const [isEditing, setIsEditing] = useState(false);
-  const [updatedTitle, setUpdatedTitle] = useState(title as string);
-  const [updatedCategory, setUpdatedCategory] = useState(category as string);
-  const [updatedFrequency, setUpdatedFrequency] = useState(Number(initialFrequency) || 7);
-
-  const [habitHistory, setHabitHistory] = useState<Record<string, 'completed' | 'skipped' | 'failed'>>({});
-
-  const [confirmEditModalVisible, setConfirmEditModalVisible] = useState(false);
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
-
-  const [pendingNavigationAction, setPendingNavigationAction] = useState<any>(null);
-
-  const decrementCounter = () => { if (updatedFrequency > 1) setUpdatedFrequency(updatedFrequency - 1); };
-  const incrementCounter = () => { if (updatedFrequency < 7) setUpdatedFrequency(updatedFrequency + 1); };
-
-  const hasUnsavedChanges = updatedTitle !== title || updatedCategory !== category || updatedFrequency !== Number(initialFrequency);
 
   useEffect(() => {
     const docRef = doc(db, 'habits', id as string);
@@ -45,34 +31,15 @@ export default function HabitDetailScreen() {
       if (docSnap.exists()) {
         const data = docSnap.data();
         setHabitHistory(data.history || {});
+        setLiveTitle(data.title);
+        setLiveCategory(data.category);
+        setLiveFrequency(String(data.frequency));
+        setLiveVisibility(data.visibility || 'Private');
       }
     });
 
     return () => unsubscribe();
   }, [id]);
-
-  const handleUpdate = async () => {
-    if (!updatedTitle.trim()) {
-      Alert.alert("Hold on!", "Please enter a valid title before saving.");
-      return;
-    }
-
-    try {
-      const docRef = doc(db, 'habits', id as string);
-      await updateDoc(docRef, {
-        title: updatedTitle.trim(),
-        category: updatedCategory,
-        frequency: updatedFrequency,
-      });
-      
-      setConfirmEditModalVisible(false);
-      setIsEditing(false);
-      router.back();
-    } catch (error) {
-      console.error("Error updating habit document: ", error);
-      Alert.alert("Error", "Could not save changes. Check your internet connection.");
-    }
-  };
 
   const executeDelete = async () => {
     try {
@@ -104,116 +71,54 @@ export default function HabitDetailScreen() {
     return marked;
   };
 
-  const navigation = useNavigation();
-
-  useEffect(() => {
-    const unsubscribe = navigation.addListener('beforeRemove', (e) => {
-      if(isEditing && hasUnsavedChanges){
-        e.preventDefault();
-        setPendingNavigationAction(e.data.action); 
-        setConfirmEditModalVisible(true);
-      }
-    });
-    return unsubscribe;
-  }, [navigation, isEditing, hasUnsavedChanges]);
-
   return (
     <View style={[defaultStyles.container, { backgroundColor: currentColors.background }]}>
       <Stack.Screen 
         options={{ 
           headerShown: true, 
-          title: isEditing ? "Edit Habit" : updatedTitle,
+          title: liveTitle,
           headerTintColor: currentColors.tint,
           headerStyle: { backgroundColor: currentColors.background },
           animation: 'slide_from_right'
         }} 
       />
 
-      {/* Free Scrolling Content Body */}
       <ScrollView 
         style={{ flex: 1, backgroundColor: currentColors.background }} 
         contentContainerStyle={{ paddingBottom: 24 }}
         showsVerticalScrollIndicator={false}
       >
-        {isEditing ? (
-          /* --- EDIT MODE VIEW --- */
-          <View style={defaultStyles.content}>
-            <Text style={[defaultStyles.label, { color: currentColors.text }]}>Habit Name</Text>
-            <TextInput 
-              style={[defaultStyles.input, { 
-                  backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFF',
-                  color: currentColors.text,
-                  borderColor: colorScheme === 'dark' ? '#334155' : '#CBD5E1'
-              }]}
-              value={updatedTitle}
-              onChangeText={setUpdatedTitle}
-              maxLength={40}
-            />
-
-            <Text style={[defaultStyles.label, { color: currentColors.text, marginTop: 20 }]}>Category</Text>
-            <View style={styles.categoryGrid}>
-              {CATEGORIES.map((cat) => {
-                const isSelected = updatedCategory === cat;
-                return (
-                  <TouchableOpacity
-                    key={cat}
-                    style={[styles.categoryCard, { backgroundColor: isSelected ? currentColors.tint : (colorScheme === 'dark' ? '#1E293B' : '#E2E8F0') }]}
-                    onPress={() => setUpdatedCategory(cat)}
-                  >
-                    <Text style={[styles.categoryText, { color: isSelected ? '#FFF' : (colorScheme === 'dark' ? '#94A3B8' : '#475569') }]}>
-                      {cat}
-                    </Text>
-                  </TouchableOpacity>
-                );
-              })}
-            </View>
-
-            <Text style={[defaultStyles.label, { color: currentColors.text, marginTop: 10 }]}>Target Frequency</Text>
-            <View style={styles.counterRowContainer}>
-              <TouchableOpacity style={styles.counterButton} onPress={decrementCounter}>
-                <Text style={styles.counterButtonText}>-</Text>
-              </TouchableOpacity>
-              <Text style={[styles.counterValueText, { color: currentColors.text }]}>
-                {updatedFrequency} {updatedFrequency === 1 ? 'day' : 'days'} / week
-              </Text>
-              <TouchableOpacity style={styles.counterButton} onPress={incrementCounter}>
-                <Text style={styles.counterButtonText}>+</Text>
-              </TouchableOpacity>
-            </View>
-          </View>
-        ) : (
-          /* --- READ MODE VIEW --- */
-          <View style={defaultStyles.content}>
-            <Text style={defaultStyles.subtitle}>Category: {updatedCategory}</Text>
-            <Text style={defaultStyles.subtitle}>Weekly Target: {updatedFrequency} {updatedFrequency === 1 ? 'day' : 'days'} / week</Text>
-            <Text style={defaultStyles.subtitle}>Current Streak: {streak} days</Text>
-            
-            <Calendar
-              current={new Date().toISOString().split('T')[0]} 
-              markedDates={generateMarkedDates()}             
-              theme={{
-                calendarBackground: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF',
-                textSectionTitleColor: '#94A3B8',
-                dayTextColor: currentColors.text,
-                todayTextColor: currentColors.tint,
-                arrowColor: currentColors.tint,
-                monthTextColor: currentColors.text,
-                textDisabledColor: colorScheme === 'dark' ? '#334155' : '#CBD5E1',
-              }}
-              style={{
-                borderRadius: 16,
-                marginTop: 24,
-                paddingVertical: 10
-              }}
-            />
-          </View>
-        )}
+        <View style={defaultStyles.content}>
+          <Text style={defaultStyles.subtitle}>Category: {liveCategory}</Text>
+          <Text style={defaultStyles.subtitle}>Visibility: {liveVisibility || 'Private'}</Text>
+          <Text style={defaultStyles.subtitle}>Weekly Target: {liveFrequency} {Number(liveFrequency) === 1 ? 'day' : 'days'} / week</Text>
+          <Text style={defaultStyles.subtitle}>Current Streak: {streak} days</Text>
+          
+          <Calendar
+            current={new Date().toISOString().split('T')[0]} 
+            markedDates={generateMarkedDates()}             
+            theme={{
+              calendarBackground: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF',
+              textSectionTitleColor: '#94A3B8',
+              dayTextColor: currentColors.text,
+              todayTextColor: currentColors.tint,
+              arrowColor: currentColors.tint,
+              monthTextColor: currentColors.text,
+              textDisabledColor: colorScheme === 'dark' ? '#334155' : '#CBD5E1',
+            }}
+            style={{
+              borderRadius: 16,
+              marginTop: 24,
+              paddingVertical: 8
+            }}
+          />
+        </View>
       </ScrollView>
 
       <CustomModal
         visible={deleteModalVisible}
         title="Delete Habit"
-        description={`Are you sure you want to permanently delete "${updatedTitle}"?`}
+        description={`Are you sure you want to permanently delete "${liveTitle}"?`}
         onClose={() => setDeleteModalVisible(false)}
         buttons={[
           { text: "Yes, delete", variant: "danger", onPress: executeDelete },
@@ -221,51 +126,26 @@ export default function HabitDetailScreen() {
         ]}
       />
 
-      <CustomModal
-        visible={confirmEditModalVisible}
-        title="Unsaved Changes"
-        description="You have unsaved changes. Do you want to save them before leaving?"
-        onClose={() => setConfirmEditModalVisible(false)}
-        buttons={[
-          { text: "Yes, save changes", variant: "success", onPress: handleUpdate },
-          { 
-            text: "Discard changes", 
-            variant: "danger", 
-            onPress: () => {
-              setConfirmEditModalVisible(false);
-              if (pendingNavigationAction) {
-                navigation.dispatch(pendingNavigationAction);
-              } else {
-                router.back();
-              }
-            } 
-          },
-          { text: "Keep Editing", variant: "outline", onPress: () => setConfirmEditModalVisible(false) }
-        ]}
-      />
-
       {/* Static Bottom-Pinned Action Deck */}
       <View style={styles.buttonContainer}>
-        {isEditing ? (
-          <>
-            <CustomButton text="Save Changes" variant="success" onPress={handleUpdate} />
-            <CustomButton 
-              text="Cancel" 
-              variant="neutral" 
-              onPress={() => {
-                setIsEditing(false);
-                setUpdatedTitle(title as string);
-                setUpdatedCategory(category as string);
-                setUpdatedFrequency(Number(initialFrequency) || 7);
-              }} 
-            />
-          </>
-        ) : (
-          <>
-            <CustomButton text="Edit Habit" variant="tint" onPress={() => setIsEditing(true)} />
-            <CustomButton text="Delete Habit" variant="danger" onPress={confirmDelete} />
-          </>
-        )}
+        <>
+          <CustomButton text="Edit Habit" variant="tint" 
+            onPress={() => {
+              router.push({
+                pathname: '/habit-editor',
+                params: {
+                  mode: 'edit',
+                  id: id as string,
+                  title: liveTitle,
+                  category: liveCategory,
+                  frequency: liveFrequency,
+                  visibility: liveVisibility || 'Private'
+                }
+              });
+            }}
+          />
+          <CustomButton text="Delete Habit" variant="danger" onPress={confirmDelete} />
+        </>
       </View>
     </View>
   );

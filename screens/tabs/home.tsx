@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { StyleSheet, Text, View, ScrollView, TouchableOpacity, Image } from 'react-native';
 import { Tabs, useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -8,6 +8,8 @@ import { auth, db } from '../../config/firebase';
 import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
 import { useAppTheme } from '@/context/ThemeContext';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { User } from '@/types';
+import { subscribeToFriends } from '@/services/friendshipService';
 
 interface HomeHabit {
   id: string;
@@ -18,20 +20,6 @@ interface HomeHabit {
   history: Record<string, 'completed' | 'skipped' | 'failed'>;
 }
 
-// 1. Added minimal Friend definition for the dashboard preview pulse
-interface HomeFriend {
-  id: string;
-  name: string;
-  avatarUrl: string;
-  progress: number; // e.g., 0.0 to 1.0 (0% to 100%)
-}
-
-const FAKE_FRIENDS: HomeFriend[] = [
-  { id: '1', name: 'Alexandru', avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=150', progress: 0.1 },  // 100% Done
-  { id: '2', name: 'Elena', avatarUrl: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=150', progress: 1.0 }, // 66% Done
-  { id: '3', name: 'Mihai', avatarUrl: 'https://images.unsplash.com/photo-1570295999919-56ceb5ecca61?w=150', progress: 0.6 }, // 25% Done
-];
-
 export default function HomeScreen() {
   const router = useRouter();
   const { theme: colorScheme } = useAppTheme();
@@ -39,6 +27,7 @@ export default function HomeScreen() {
 
   const currentUser = auth.currentUser;
 
+  const [friends, setFriends] = useState<User[]>([]);
   const [habits, setHabits] = useState<HomeHabit[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -50,9 +39,23 @@ export default function HomeScreen() {
   const completionPercentage = totalHabits > 0 ? Math.round((completedHabits / totalHabits) * 100) : 0;
   const remainingHabits = habits.filter(h => h.history[todayStr] === undefined);
 
+  useEffect(
+    useCallback(() => {
+      if(!currentUser?.uid) return;
+
+      const unsubscribeFriends = subscribeToFriends(currentUser.uid, (liveFriendsData) => {
+        setFriends(liveFriendsData);
+      });
+
+      return () => {
+        unsubscribeFriends();
+      }
+    }, [currentUser?.uid])
+  )
+
   useFocusEffect(
     useCallback(() => {
-    const habitsCollection = collection(db, 'habits');
+      const habitsCollection = collection(db, 'habits');
       const q = query(
         habitsCollection, 
         where('userId', '==', currentUser?.uid || 'unknown')
@@ -120,17 +123,29 @@ export default function HomeScreen() {
 
   const handleQuickCheckIn = async (habitId: string, currentHistory: Record<string, 'completed' | 'skipped' | 'failed'>) => {
     try {
-      const docRef = doc(db, 'habits', habitId);
-      
+      const habitRef = doc(db, 'habits', habitId);
+      const userRef = doc(db, 'usernames', currentUser?.displayName as string);
+
       // Calculate what the streak should be based on yesterday backwards, plus today's click!
       const baselineStreak = calculateStreakFromHistory(currentHistory);
       const nextStreak = baselineStreak + 1;
 
+      const newCompleteCount = completedHabits + 1;
+      const newPercentage = totalHabits > 0 ? (newCompleteCount/totalHabits) : 0;
+
       // Optimistically push the update to Firestore
-      await updateDoc(docRef, {
-        [`history.${todayStr}`]: 'completed',
-        streak: nextStreak
-      });
+      await Promise.all([
+        updateDoc(habitRef, {
+          [`history.${todayStr}`]: 'completed',
+          streak: nextStreak
+        }),
+        updateDoc(userRef, {
+          todaysProgress: {
+            date: todayStr,
+            percentage: newPercentage
+          }
+        })
+      ]);
     } catch (error) {
       console.error("Failed to execute quick home check-in:", error);
     }
@@ -171,15 +186,24 @@ export default function HomeScreen() {
           style={styles.friendsCarousel}
           contentContainerStyle={styles.friendsCarouselContent}
         >
-          {FAKE_FRIENDS.map((friend) => {
+          {friends.map((friend) => {
           // Calculate the color for this specific friend dynamically
-          const ringColor = getRingColor(friend.progress, currentColors.tint);
+          const ringColor = getRingColor(friend.dailyProgress, currentColors.tint);
 
           return (
             <TouchableOpacity 
               key={friend.id} 
               style={styles.friendAvatarWrapper}
-              onPress={() => router.push('/friends')}
+              onPress={() => router.push({
+                pathname: '/user-profile',
+                params: { 
+                  id: friend.id,
+                  name: friend.name, 
+                  avatarUrl: friend.avatarUrl,
+                  friendStatus: 'friends', 
+                  progress: Math.round(friend.dailyProgress * 100)
+                }
+              })}
             >
               {/* The Ring Box changes color dynamically based on their tier */}
               <View style={[styles.avatarRing, { borderColor: ringColor }]}>
@@ -197,7 +221,7 @@ export default function HomeScreen() {
                 
                 {/* Tiny absolute badge dot showing the percentage over the profile photo */}
                 <View style={[styles.miniPercentageBadge, { backgroundColor: ringColor }]}>
-                  <Text style={styles.miniBadgeText}>{Math.round(friend.progress * 100)}%</Text>
+                  <Text style={styles.miniBadgeText}>{Math.round(friend.dailyProgress * 100)}%</Text>
                 </View>
               </View>
               
