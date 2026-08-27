@@ -10,15 +10,7 @@ import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/f
 import CustomButton from '@/components/CustomButton';
 import HabitCard from '@/components/HabitCard';
 import CustomModal from '@/components/CustomModal';
-
-interface Habit {
-  id: string;
-  title: string;
-  category: string;
-  streak: number; 
-  frequency: number;
-  history: Record<string, 'completed' | 'skipped' | 'failed'>;
-}
+import { Habit } from '@/types';
 
 interface HabitModalButton {
   text: string;
@@ -62,6 +54,7 @@ export default function HabitsScreen() {
             streak: Number(data.streak) || 0,
             frequency: Number(data.frequency) || 7,
             history: data.history || {},
+            visibility: data.visibility || 'Private',
           });
         });
 
@@ -84,10 +77,17 @@ export default function HabitsScreen() {
     setTimeout(() => {setRefreshing(false)}, 1000);
   }, []);
 
-  const handleHabitPress = (habitId: string, habitTitle: string, habitCategory: string, habitStreak: number) => {
+  const handleHabitPress = (habit: Habit) => {
     router.push({
       pathname: '/habit-detail',
-      params: { id: habitId, title: habitTitle, category: habitCategory, streak: String(habitStreak) }
+      params: { 
+        id: habit.id, 
+        title: habit.title, 
+        category: habit.category, 
+        streak: String(habit.streak),
+        frequency: String(habit.frequency),
+        visibility: habit.visibility || 'Private'
+      }
     });
   };
 
@@ -122,23 +122,56 @@ export default function HabitsScreen() {
   };
 
   const handleStatusSelect = async (status: 'completed' | 'skipped' | 'failed') => {
-    if(!activeHabit) return;
+    if(!activeHabit || !currentUser) return;
 
-    const todayStreak = new Date().toISOString().split('T')[0];
-    const docRef = doc(db, 'habits', activeHabit.id);
+    const todayStr = new Date().toISOString().split('T')[0];
+    const habitRef = doc(db, 'habits', activeHabit.id);
 
     const updatedHistory = {
       ...activeHabit.history,
-      [todayStreak]: status
+      [todayStr]: status
     };
 
     const nextStreak = calculateStreakFromHistory(updatedHistory);
 
+    let completedCount = 0;
+    
+    habits.forEach(h => {
+      if (h.id === activeHabit.id) {
+         // If this is the habit we are currently interacting with, use the new status
+         if (status === 'completed') completedCount++;
+      } else {
+         // For all other habits, check their existing history in state
+         if (h.history && h.history[todayStr] === 'completed') completedCount++;
+      }
+    });
+
+    const totalHabits = habits.length;
+    // Calculate the percentage
+    const dailyProgress = totalHabits > 0 ? (completedCount / totalHabits) : 0;
+
+    const currentUsername = auth.currentUser?.displayName;
+
+    if (!currentUsername) {
+      console.error("User does not have a displayName set!");
+      return;
+    }
+
     try {
-      await updateDoc(docRef, {
-        [`history.${todayStreak}`]: status,
+      const habitUpdate = updateDoc(habitRef, {
+        [`history.${todayStr}`]: status,
         streak: nextStreak
       });
+
+      const userRef = doc(db, 'usernames', currentUsername); 
+      const userUpdate = updateDoc(userRef, {
+        todaysProgress: {
+          date: todayStr,
+          percentage: dailyProgress
+        }
+      });
+
+      await Promise.all([habitUpdate, userUpdate]);
 
       setModalVisible(false);
       setActiveHabit(null);
@@ -183,7 +216,7 @@ export default function HabitsScreen() {
       <Tabs.Screen options={{ headerShown: false }} />
       
       {loading ? (
-        <View style={styles.centerContainer}>
+        <View style={defaultStyles.centerContainer}>
           <ActivityIndicator size="large" color={currentColors.tint} />
           <Text style={{ color: '#94A3B8', marginTop: 12 }}>Loading your habits...</Text>
         </View>
@@ -202,11 +235,11 @@ export default function HabitsScreen() {
         >
           <View style={defaultStyles.headerRow}>
             <Text style={[defaultStyles.headerTitle, { color: currentColors.title, marginBottom: 0 }]}>My Habits</Text>
-            <CustomButton text="New +" size="small" onPress={() => router.push('/add-habit')} />
+            <CustomButton text="New +" size="small" onPress={() => router.push('/habit-editor')} />
           </View>
           
           {habits.length === 0 ? (
-            <View style={styles.centerContainer}>
+            <View style={defaultStyles.centerContainer}>
               <Text style={{ color: '#94A3B8' }}>No habits found. Create one to get started!</Text>
             </View>
           ) : (
@@ -221,7 +254,7 @@ export default function HabitsScreen() {
                   category={habit.category}
                   streak={habit.streak}
                   todayStatus={todayStatus}
-                  onCardPress={() => handleHabitPress(habit.id, habit.title, habit.category, habit.streak)}
+                  onCardPress={() => handleHabitPress(habit)}
                   onCheckInPress={() => { setActiveHabit(habit); setModalVisible(true); }}
                 />
               );
@@ -275,7 +308,3 @@ export default function HabitsScreen() {
     </SafeAreaView>
   );
 }
-
-const styles = StyleSheet.create({
-  centerContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-});
