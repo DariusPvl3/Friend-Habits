@@ -5,6 +5,7 @@ import {
 } from '@react-navigation/native';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
+import * as SystemUI from 'expo-system-ui';
 import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import Colors from '@/constants/Colors';
@@ -44,8 +45,13 @@ function RootLayoutNav() {
   const { user, loading } = useAuth(); 
   const segments = useSegments(); 
   const router = useRouter();
+  
   const { theme } = useAppTheme();
   const currentColors = Colors[theme];
+
+  useEffect(() => {
+    SystemUI.setBackgroundColorAsync(currentColors.background);
+  }, [currentColors.background]);
 
   useEffect(() => {
     if (loading) return; 
@@ -63,7 +69,7 @@ function RootLayoutNav() {
           router.replace({ pathname: '/profile-editor', params: {mode: 'create'}});
         }
       } else {
-        if (inAuthGroup || inOnboarding) {
+        if (inAuthGroup) {
           router.replace('/(tabs)/home');
         }
       }
