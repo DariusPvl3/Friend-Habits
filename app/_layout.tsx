@@ -69,7 +69,7 @@ function RootLayoutNav() {
           router.replace({ pathname: '/profile-editor', params: {mode: 'create'}});
         }
       } else {
-        if (inAuthGroup || inOnboarding) {
+        if (inAuthGroup) {
           router.replace('/(tabs)/home');
         }
       }
