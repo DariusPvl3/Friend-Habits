@@ -143,7 +143,8 @@ export default function HomeScreen() {
           todaysProgress: {
             date: todayStr,
             percentage: newPercentage
-          }
+          },
+          [`progressHistory.${todayStr}`]: newPercentage
         })
       ]);
     } catch (error) {

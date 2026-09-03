@@ -6,7 +6,7 @@ import { useAppTheme } from '@/context/ThemeContext';
 import Colors from '../../constants/Colors';
 import { defaultStyles } from '@/constants/GlobalStyles';
 import { auth, db } from '../../config/firebase'; 
-import { collection, query, where, onSnapshot, updateDoc, doc } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, updateDoc, doc, setDoc } from 'firebase/firestore';
 import CustomButton from '@/components/CustomButton';
 import HabitCard from '@/components/HabitCard';
 import CustomModal from '@/components/CustomModal';
@@ -154,6 +154,8 @@ export default function HabitsScreen() {
 
     if (!currentUsername) {
       console.error("User does not have a displayName set!");
+      setModalVisible(false);
+      setActiveHabit(null);
       return;
     }
 
@@ -164,12 +166,16 @@ export default function HabitsScreen() {
       });
 
       const userRef = doc(db, 'usernames', currentUsername); 
-      const userUpdate = updateDoc(userRef, {
+
+      const userUpdate = setDoc(userRef, {
         todaysProgress: {
           date: todayStr,
           percentage: dailyProgress
+        },
+        progressHistory: {
+          [todayStr]: dailyProgress
         }
-      });
+      }, {merge: true});
 
       await Promise.all([habitUpdate, userUpdate]);
 
@@ -177,6 +183,8 @@ export default function HabitsScreen() {
       setActiveHabit(null);
     } catch (error) {
       console.error("Failed writing status patch payload", error);
+      setModalVisible(false);
+      setActiveHabit(null);
     }
   };
 

@@ -1,15 +1,19 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View, Image, TouchableOpacity, ScrollView } from 'react-native';
 import { Tabs, useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { signOut } from 'firebase/auth';
 import { useAuth } from '@/context/auth';
-import { auth } from '../../config/firebase'; 
+import { auth, db } from '../../config/firebase'; 
 import Colors from '../../constants/Colors';
 import { defaultStyles } from '@/constants/GlobalStyles';
 import CustomButton from '@/components/CustomButton';
 import { useAppTheme } from '@/context/ThemeContext';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
+import UserStatsCollapsible from '@/components/UserStatsCollapsible';
+import { calculateUserStats } from '@/services/statisticsService';
+import { Habit } from '@/types';
+import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 
 interface SettingItem {
   id: string;
@@ -24,12 +28,6 @@ interface SettingSection {
 }
 
 const SETTINGS_SECTIONS: SettingSection[] = [
-  {
-    sectionTitle: "Profile & Progress",
-    items: [
-      { id: "stats", title: "Global Statistics", icon: "bar-chart-outline", targetRoute: "/statistics" },
-    ],
-  },
   {
     sectionTitle: "App Preferences",
     items: [
@@ -54,6 +52,58 @@ export default function AccountScreen() {
 
   const { theme: colorScheme } = useAppTheme();
   const currentColors = Colors[colorScheme];
+
+  const [userHabits, setUserHabits] = useState<Habit[]>([]);
+  const [progressHistory, setProgressHistory] = useState<Record<string, number>>({});
+  const [accountCreatedAt, setAccountCreatedAt] = useState<Date | null>(null);
+  
+  useEffect(() => {
+    if (!user?.displayName) return;
+
+    const userRef = doc(db, 'usernames', user.displayName);
+    const unsubscribeUser = onSnapshot(userRef, (docSnap) => {
+      if (docSnap.exists()) {
+        const data = docSnap.data();
+        setProgressHistory(data.progressHistory || {});
+
+        if (data.createdAt) {
+          const parsedDate = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+          setAccountCreatedAt(parsedDate);
+        }
+      }
+    });
+
+    return () => unsubscribeUser();
+  }, [user?.displayName]);
+
+  useEffect(() => {
+    if (!user?.uid) return;
+
+    const q = query(collection(db, 'habits'), where('userId', '==', user.uid));
+    const unsubscribeHabits = onSnapshot(q, (snapshot) => {
+      const fetchedHabits = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          id: doc.id,
+          title: data.title,
+          category: data.category,
+          streak: data.streak,
+          frequency: data.frequency,
+          history: data.history || {},
+          visibility: data.visibility || 'Private',
+          userId: data.userId,
+        } as Habit;
+      });
+
+      setUserHabits(fetchedHabits);
+    });
+
+    return () => unsubscribeHabits();
+  }, [user?.uid]);
+
+  const calculatedStats = useMemo(() => {
+    return calculateUserStats(userHabits, progressHistory, accountCreatedAt, user?.uid);
+  }, [userHabits, progressHistory, accountCreatedAt, user?.uid]);
 
   useFocusEffect(
     useCallback(() => {
@@ -127,6 +177,16 @@ export default function AccountScreen() {
             style={{ marginRight: 4 }}
           />
         </TouchableOpacity>
+
+        {/* --- STATS SECTION --- */}
+          <View style={{ marginTop: 12, width: '100%' }}>
+            <UserStatsCollapsible 
+              stats={calculatedStats} 
+              progressHistory={progressHistory}
+              accountCreatedAt={accountCreatedAt}
+              currentColors={currentColors} 
+            />
+        </View>
 
         {/* Loop through the sections array */}
         {SETTINGS_SECTIONS.map((section) => (

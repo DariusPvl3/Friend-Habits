@@ -103,12 +103,23 @@ export default function ProfileEditorScreen() {
             }
           }
 
+          let accountCreationDate = new Date().toISOString();
+
+          if(!isCreating && currentDisplayName){
+            const oldUsernameRef = doc(db, 'usernames', currentDisplayName);
+            const oldSnap = await getDoc(oldUsernameRef);
+            if(oldSnap.exists() && oldSnap.data().createdAt){
+              accountCreationDate = oldSnap.data().createdAt;
+            }
+          }
+
           // If we get here, the username is valid.
           const batch = writeBatch(db);
           
           // Claim the new username
           batch.set(newUsernameRef, {
             uid: user.uid,
+            createdAt: accountCreationDate,
             updatedAt: new Date().toISOString(),
             avatarUrl: imageUri || null
           });
@@ -121,8 +132,10 @@ export default function ProfileEditorScreen() {
 
           await batch.commit();
         } else {
+          // If the username didn't change (just updating the photo)
           if (!isCreating && currentDisplayName) {
             const currentUsernameRef = doc(db, 'usernames', currentDisplayName);
+            
             await setDoc(currentUsernameRef, {
               avatarUrl: imageUri || null,
               updatedAt: new Date().toISOString()

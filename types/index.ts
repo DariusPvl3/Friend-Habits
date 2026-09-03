@@ -5,6 +5,7 @@ export interface Habit {
   streak: number; 
   frequency: number;
   visibility?: string;
+  userId?: string;
   history: Record<string, 'completed' | 'skipped' | 'failed'>;
 }
 
