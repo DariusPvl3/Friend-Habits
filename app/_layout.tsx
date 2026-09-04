@@ -2,7 +2,7 @@ import {
   DarkTheme as NavigationDarkTheme, 
   DefaultTheme as NavigationDefaultTheme, 
   ThemeProvider as NavContainer
-} from '@react-navigation/native';
+} from 'expo-router/react-navigation';
 import { useFonts } from 'expo-font';
 import { Stack, useRouter, useSegments } from 'expo-router';
 import * as SystemUI from 'expo-system-ui';
