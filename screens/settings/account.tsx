@@ -7,14 +7,17 @@ import {
   KeyboardAvoidingView,
   ScrollView,
   Platform,
+  TouchableOpacity,
+  Modal,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { Stack, useRouter } from "expo-router";
 import {
   verifyBeforeUpdateEmail,
-  sendPasswordResetEmail,
   signOut,
   deleteUser,
+  reauthenticateWithCredential,
+  EmailAuthProvider,
 } from "firebase/auth";
 import { auth, db } from "@/config/firebase";
 import { useAppTheme } from "@/context/ThemeContext";
@@ -22,7 +25,16 @@ import Colors from "@/constants/Colors";
 import { defaultStyles } from "@/constants/GlobalStyles";
 import CustomButton from "@/components/CustomButton";
 import CustomModal from "@/components/CustomModal";
-import { collection, doc, getDocs, query, where, writeBatch } from "firebase/firestore";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import {
+  collection,
+  doc,
+  getDocs,
+  query,
+  where,
+  writeBatch,
+} from "firebase/firestore";
+import { checkIsOnline } from "@/services/networkService";
 
 export default function AccountSettingsRoute() {
   const router = useRouter();
@@ -32,14 +44,19 @@ export default function AccountSettingsRoute() {
   const [newEmail, setNewEmail] = useState(auth.currentUser?.email || "");
   const [loading, setLoading] = useState(false);
 
-  // Modal State
+  // Security Wall: Password Confirmation State
+  const [passwordModalVisible, setPasswordModalVisible] = useState(false);
+  const [confirmPasswordInput, setConfirmPasswordInput] = useState("");
+  const [isConfirmPasswordVisible, setIsConfirmPasswordVisible] = useState(false);
+  const [passwordError, setPasswordError] = useState("");
+
+  // Alert Modal State
   const [modalVisible, setModalVisible] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
   const [modalDescription, setModalDescription] = useState("");
   const [modalButtons, setModalButtons] = useState<any[]>([]);
 
   const scrollViewRef = useRef<ScrollView>(null);
-
   const currentEmail = auth.currentUser?.email || "";
   const hasEmailChanges =
     newEmail.trim().toLowerCase() !== currentEmail.toLowerCase();
@@ -65,10 +82,18 @@ export default function AccountSettingsRoute() {
     setModalVisible(true);
   };
 
-  // Email Update Handler
+  // Email Update Handler with Network Check
   const handleEmailUpdate = async () => {
-    const cleanEmail = newEmail.trim().toLowerCase();
+    const isOnline = await checkIsOnline();
+    if (!isOnline) {
+      triggerAlert(
+        "Network Error",
+        "You appear to be offline. Please connect to the internet to update your email."
+      );
+      return;
+    }
 
+    const cleanEmail = newEmail.trim().toLowerCase();
     if (!cleanEmail) {
       triggerAlert("Hold on!", "Email field cannot be blank.");
       return;
@@ -76,88 +101,38 @@ export default function AccountSettingsRoute() {
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     if (!emailRegex.test(cleanEmail)) {
-      triggerAlert(
-        "Invalid Format",
-        "Please enter a valid email address (e.g., user@example.com)."
-      );
-      return;
-    }
-
-    if (cleanEmail === currentEmail.toLowerCase()) {
-      triggerAlert(
-        "No Changes",
-        "This email is already associated with your account."
-      );
+      triggerAlert("Invalid Format", "Please enter a valid email address.");
       return;
     }
 
     try {
       setLoading(true);
       const user = auth.currentUser;
-
       if (user) {
         await verifyBeforeUpdateEmail(user, cleanEmail);
         triggerAlert(
           "Verification Sent! ✉️",
-          `A confirmation link was dispatched to ${cleanEmail}. Your email will update as soon as you confirm the link.`,
+          `A confirmation link was dispatched to ${cleanEmail}. Your email will update once confirmed.`,
           undefined,
           true
         );
       }
     } catch (error: any) {
-      console.error("Email update failed:", error);
       let message = "Could not update email. Please try again.";
-
       if (error.code === "auth/requires-recent-login") {
-        message =
-          "For security reasons, changing your email requires a fresh login. Please sign out and sign back in before trying again.";
-      } else if (error.code === "auth/email-already-in-use") {
-        message = "This email address is already claimed by another user.";
+        message = "Session expired. Please sign out and sign back in to update your email.";
       }
-
       triggerAlert("Update Failed", message);
     } finally {
       setLoading(false);
     }
   };
 
-  // Password Reset Handler
-  const handlePasswordResetRequest = () => {
-    router.push("/(auth)/reset-password");
-  };
-
-  // Log Out Handler
-  const handleSignOutPress = () => {
-    setModalTitle("Log Out");
-    setModalDescription("Are you sure you want to sign out of your account?");
-    setModalButtons([
-      {
-        text: "Cancel",
-        variant: "tint",
-        onPress: () => setModalVisible(false),
-      },
-      {
-        text: "Log Out",
-        variant: "danger",
-        onPress: async () => {
-          setModalVisible(false);
-          try {
-            await signOut(auth);
-          } catch (error) {
-            console.error("Sign out error:", error);
-            triggerAlert("Error", "Could not log out. Please check your connection.");
-          }
-        },
-      },
-    ]);
-    setModalVisible(true);
-  };
-
-  // Delete Account Handler
+  // Initial Danger Confirmation
   const handleDeleteAccountPress = () => {
     setModalTitle("Delete Account");
     setModalDescription(
-      "Are you sure you want to permanently delete your account? All habits, streak history, and friendships will be removed forever."
+      "Are you sure you want to permanently delete your account? All habits, history, and friendships will be removed forever."
     );
     setModalButtons([
       {
@@ -166,77 +141,90 @@ export default function AccountSettingsRoute() {
         onPress: () => setModalVisible(false),
       },
       {
-        text: "Delete Forever",
+        text: "Continue",
         variant: "danger",
         onPress: () => {
           setModalVisible(false);
-          executeCascadeDelete();
+          setPasswordError("");
+          setConfirmPasswordInput("");
+          setPasswordModalVisible(true);
         },
       },
     ]);
     setModalVisible(true);
   };
 
-  const executeCascadeDelete = async () => {
+  // Authenticated Cascade Deletion
+  const handleFinalPasswordConfirmation = async () => {
+    const isOnline = await checkIsOnline();
+    if (!isOnline) {
+      setPasswordError("No internet connection detected. Please connect to the internet to proceed.");
+      return;
+    }
+
+    if (!confirmPasswordInput.trim()) {
+      setPasswordError("Please enter your current password to proceed.");
+      return;
+    }
+
     const user = auth.currentUser;
-    if (!user) return;
+    if (!user || !user.email) return;
 
     try {
       setLoading(true);
+      setPasswordError("");
+
+      // Re-authenticate with password
+      const credential = EmailAuthProvider.credential(user.email, confirmPasswordInput.trim());
+      await reauthenticateWithCredential(user, credential);
+
+      // Dismiss the password modal upon successful authentication
+      setPasswordModalVisible(false);
+
+      // Atomic Firestore cleanup
       const batch = writeBatch(db);
 
-      // Free up the unique username record
       if (user.displayName) {
         const usernameRef = doc(db, "usernames", user.displayName);
         batch.delete(usernameRef);
       }
 
-      // Query and delete all habits created by this user
-      const habitsQuery = query(
-        collection(db, "habits"),
-        where("userId", "==", user.uid)
+      const habitsSnapshot = await getDocs(
+        query(collection(db, "habits"), where("userId", "==", user.uid))
       );
-      const habitsSnapshot = await getDocs(habitsQuery);
       habitsSnapshot.forEach((habitDoc) => {
         batch.delete(habitDoc.ref);
       });
 
-      // Query and delete all friendships involving this user
-      const friendshipsQuery = query(
-        collection(db, "friendships"),
-        where("users", "array-contains", user.uid)
+      const friendshipsSnapshot = await getDocs(
+        query(collection(db, "friendships"), where("users", "array-contains", user.uid))
       );
-      const friendshipsSnapshot = await getDocs(friendshipsQuery);
       friendshipsSnapshot.forEach((friendshipDoc) => {
         batch.delete(friendshipDoc.ref);
       });
 
-      // Commit all Firestore deletions atomically
       await batch.commit();
 
-      // Delete Firebase Auth user
+      // Delete Auth Record
       await deleteUser(user);
-
-      // Root auth gatekeeper will catch null state and redirect to (auth)/login automatically
     } catch (error: any) {
-      console.error("Cascade account deletion error:", error);
-      let message = "Could not complete account deletion. Please try again.";
-
-      if (error.code === "auth/requires-recent-login") {
-        message =
-          "For security reasons, deleting your account requires a fresh login. Please log out, sign back in, and try deleting again.";
+      console.error("Account deletion failed:", error);
+      if (
+        error.code === "auth/wrong-password" ||
+        error.code === "auth/invalid-credential"
+      ) {
+        setPasswordError("Incorrect password. Please verify and try again.");
+      } else {
+        setPasswordModalVisible(false);
+        triggerAlert("Deletion Failed", error.message || "An unexpected error occurred.");
       }
-
-      triggerAlert("Deletion Failed", message);
     } finally {
       setLoading(false);
     }
   };
 
   return (
-    <SafeAreaView
-      style={[defaultStyles.safeArea, { backgroundColor: currentColors.background }]}
-    >
+    <SafeAreaView style={[defaultStyles.safeArea, { backgroundColor: currentColors.background }]}>
       <Stack.Screen
         options={{
           headerShown: true,
@@ -262,15 +250,13 @@ export default function AccountSettingsRoute() {
             <Text style={[defaultStyles.title, { color: currentColors.text }]}>
               Account Management
             </Text>
-            <Text style={{ color: "#94A3B8", fontSize: 14 }}>
+            <Text style={{ color: "#94A3B8", fontSize: 14, marginTop: 4 }}>
               Manage your credentials, authentication session, and privacy.
             </Text>
           </View>
 
-          {/* EMAIL MANAGEMENT */}
-          <Text style={[defaultStyles.label, { color: currentColors.text }]}>
-            Change Email
-          </Text>
+          {/* EMAIL SETTINGS */}
+          <Text style={[defaultStyles.label, { color: currentColors.text }]}>Change Email</Text>
           <TextInput
             style={[
               defaultStyles.input,
@@ -295,60 +281,63 @@ export default function AccountSettingsRoute() {
             />
           </View>
 
-          {/* PASSWORD CHANGING */}
-          <Text style={[defaultStyles.label, { color: currentColors.text }]}>
-            Password Security
-          </Text>
+          {/* PASSWORD RESET */}
+          <Text style={[defaultStyles.label, { color: currentColors.text }]}>Password Security</Text>
           <View
             style={[
               styles.card,
-              {
-                backgroundColor: colorScheme === "dark" ? "#1E293B" : "#F8FAFC",
-              },
+              { backgroundColor: colorScheme === "dark" ? "#1E293B" : "#F8FAFC" },
             ]}
           >
             <Text style={styles.cardSubtext}>
-              Need to change your credentials? Send a secure recovery link to your
-              current email address ({currentEmail}).
+              Update your security credentials directly in the app.
             </Text>
             <CustomButton
               text="Change Password"
               variant="tint"
               disabled={loading}
-              onPress={handlePasswordResetRequest}
+              onPress={() => router.push("/(auth)/reset-password")}
             />
           </View>
 
-          {/* SESSION MANAGEMENT */}
+          {/* LOG OUT */}
           <Text style={[defaultStyles.label, { color: currentColors.text, marginTop: 16 }]}>
             Session
           </Text>
           <View
             style={[
               styles.card,
-              {
-                backgroundColor: colorScheme === "dark" ? "#1E293B" : "#F8FAFC",
-              },
+              { backgroundColor: colorScheme === "dark" ? "#1E293B" : "#F8FAFC" },
             ]}
           >
             <Text style={styles.cardSubtext}>
-              Sign out of this device. You will need to enter your credentials to access your routines again.
+              Sign out of this device.
             </Text>
             <CustomButton
               text="Log Out"
               variant="danger"
               disabled={loading}
-              onPress={handleSignOutPress}
+              onPress={() => {
+                setModalTitle("Log Out");
+                setModalDescription("Are you sure you want to sign out?");
+                setModalButtons([
+                  { text: "Cancel", variant: "tint", onPress: () => setModalVisible(false) },
+                  {
+                    text: "Log Out",
+                    variant: "danger",
+                    onPress: async () => {
+                      setModalVisible(false);
+                      await signOut(auth);
+                    },
+                  },
+                ]);
+                setModalVisible(true);
+              }}
             />
           </View>
 
-          {/* ACCOUNT DELETION */}
-          <Text
-            style={[
-              defaultStyles.label,
-              { color: "#EF4444", marginTop: 16 },
-            ]}
-          >
+          {/* DANGER ZONE */}
+          <Text style={[defaultStyles.label, { color: "#EF4444", marginTop: 16 }]}>
             Danger Zone
           </Text>
           <View
@@ -361,7 +350,7 @@ export default function AccountSettingsRoute() {
             ]}
           >
             <Text style={styles.cardSubtext}>
-              Permanently delete your account, habits, streak records, and friend connections. This action cannot be reversed.
+              Permanently delete your account, habits, streak records, and friend connections.
             </Text>
             <CustomButton
               text="Delete Account"
@@ -373,6 +362,88 @@ export default function AccountSettingsRoute() {
         </ScrollView>
       </KeyboardAvoidingView>
 
+      {/* RE-AUTHENTICATION PASSWORD CONFIRMATION MODAL */}
+      <Modal
+        visible={passwordModalVisible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setPasswordModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View
+            style={[
+              styles.modalContainer,
+              { backgroundColor: colorScheme === "dark" ? "#1E293B" : "#FFFFFF" },
+            ]}
+          >
+            <Text style={[styles.modalTitle, { color: currentColors.text }]}>
+              Confirm Password
+            </Text>
+            <Text style={styles.modalSubtitle}>
+              Please enter your password to confirm permanent account deletion.
+            </Text>
+
+            <View style={styles.passwordInputWrapper}>
+              <TextInput
+                style={[
+                  defaultStyles.input,
+                  styles.passwordField,
+                  {
+                    backgroundColor: colorScheme === "dark" ? "#0F172A" : "#F8FAFC",
+                    color: currentColors.text,
+                    borderColor: passwordError
+                      ? "#EF4444"
+                      : colorScheme === "dark"
+                      ? "#334155"
+                      : "#CBD5E1",
+                  },
+                ]}
+                placeholder="Enter password"
+                placeholderTextColor="#94A3B8"
+                secureTextEntry={!isConfirmPasswordVisible}
+                value={confirmPasswordInput}
+                onChangeText={(text) => {
+                  setConfirmPasswordInput(text);
+                  setPasswordError("");
+                }}
+                autoCapitalize="none"
+              />
+              <TouchableOpacity
+                style={styles.eyeIcon}
+                onPress={() => setIsConfirmPasswordVisible(!isConfirmPasswordVisible)}
+              >
+                <MaterialCommunityIcons
+                  name={isConfirmPasswordVisible ? "eye-off-outline" : "eye-outline"}
+                  size={22}
+                  color="#94A3B8"
+                />
+              </TouchableOpacity>
+            </View>
+
+            {passwordError ? (
+              <Text style={styles.errorText}>{passwordError}</Text>
+            ) : null}
+
+            <View style={styles.modalActions}>
+              <CustomButton
+                text="Cancel"
+                variant="neutral"
+                style={{flex: 1}}
+                onPress={() => setPasswordModalVisible(false)}
+              />
+              <CustomButton
+                text={loading ? "Deleting..." : "Confirm Delete"}
+                variant="danger"
+                style={{flex: 1}}
+                disabled={loading || !confirmPasswordInput}
+                onPress={handleFinalPasswordConfirmation}
+              />
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      {/* STANDARD MODAL */}
       <CustomModal
         visible={modalVisible}
         title={modalTitle}
@@ -398,5 +469,60 @@ const styles = StyleSheet.create({
     fontSize: 14,
     marginBottom: 14,
     lineHeight: 20,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: "rgba(0, 0, 0, 0.65)",
+    justifyContent: "center",
+    alignItems: "center",
+    padding: 24,
+  },
+  modalContainer: {
+    width: "100%",
+    borderRadius: 20,
+    padding: 24,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 10,
+    elevation: 8,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 8,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: "#94A3B8",
+    lineHeight: 20,
+    marginBottom: 20,
+  },
+  passwordInputWrapper: {
+    position: "relative",
+    width: "100%",
+    justifyContent: "center",
+  },
+  passwordField: {
+    paddingRight: 48,
+    marginBottom: 0,
+  },
+  eyeIcon: {
+    position: "absolute",
+    right: 14,
+    height: "100%",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  errorText: {
+    color: "#EF4444",
+    fontSize: 13,
+    marginTop: 8,
+  },
+  modalActions: {
+    flexDirection: "row",
+    gap: 12,
+    marginTop: 24,
+    width: "100%",
   },
 });
