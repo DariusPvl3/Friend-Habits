@@ -94,7 +94,7 @@ export default function RegisterScreen() {
           style={{ flex: 1 }}
         >
           <ScrollView 
-            style={defaultStyles.container} 
+            style={[defaultStyles.container, {paddingTop: 24}]} 
             contentContainerStyle={defaultStyles.scrollContent}
             showsVerticalScrollIndicator={false}
           >

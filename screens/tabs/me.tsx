@@ -1,25 +1,23 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useState, useEffect, useMemo } from 'react';
 import { StyleSheet, Text, View, Image, TouchableOpacity, ScrollView } from 'react-native';
 import { Tabs, useFocusEffect, useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { signOut } from 'firebase/auth';
 import { useAuth } from '@/context/auth';
-import { auth, db } from '../../config/firebase'; 
-import Colors from '../../constants/Colors';
+import { auth, db } from '@/config/firebase';
+import { collection, query, where, onSnapshot, doc } from 'firebase/firestore';
+import Colors from '@/constants/Colors';
 import { defaultStyles } from '@/constants/GlobalStyles';
-import CustomButton from '@/components/CustomButton';
 import { useAppTheme } from '@/context/ThemeContext';
 import { MaterialCommunityIcons } from '@expo/vector-icons';
 import UserStatsCollapsible from '@/components/UserStatsCollapsible';
 import { calculateUserStats } from '@/services/statisticsService';
 import { Habit } from '@/types';
-import { collection, doc, onSnapshot, query, where } from 'firebase/firestore';
 
 interface SettingItem {
   id: string;
   title: string;
-  icon: string; 
-  targetRoute: string; 
+  icon: string;
+  targetRoute: string;
 }
 
 interface SettingSection {
@@ -46,17 +44,30 @@ const SETTINGS_SECTIONS: SettingSection[] = [
 
 export default function AccountScreen() {
   const router = useRouter();
-  const { user } = useAuth(); 
-  const [imgUri, setImgUri] = React.useState(user?.photoURL);
-  const [displayName, setDisplayName] = React.useState(user?.displayName);
-
+  const { user } = useAuth();
   const { theme: colorScheme } = useAppTheme();
   const currentColors = Colors[colorScheme];
 
   const [userHabits, setUserHabits] = useState<Habit[]>([]);
   const [progressHistory, setProgressHistory] = useState<Record<string, number>>({});
   const [accountCreatedAt, setAccountCreatedAt] = useState<Date | null>(null);
-  
+
+  useFocusEffect(
+    useCallback(() => {
+      const refreshUserCache = async () => {
+        if (auth.currentUser) {
+          try {
+            await auth.currentUser.reload();
+          } catch (err) {
+            console.error("Failed to sync account screen tokens:", err);
+          }
+        }
+      };
+      refreshUserCache();
+    }, [])
+  );
+
+  // 1. Fetch user progress history & account age
   useEffect(() => {
     if (!user?.displayName) return;
 
@@ -76,24 +87,21 @@ export default function AccountScreen() {
     return () => unsubscribeUser();
   }, [user?.displayName]);
 
+  // 2. Fetch active habits
   useEffect(() => {
     if (!user?.uid) return;
 
     const q = query(collection(db, 'habits'), where('userId', '==', user.uid));
     const unsubscribeHabits = onSnapshot(q, (snapshot) => {
-      const fetchedHabits = snapshot.docs.map(doc => {
-        const data = doc.data();
-        return {
-          id: doc.id,
-          title: data.title,
-          category: data.category,
-          streak: data.streak,
-          frequency: data.frequency,
-          history: data.history || {},
-          visibility: data.visibility || 'Private',
-          userId: data.userId,
-        } as Habit;
-      });
+      const fetchedHabits = snapshot.docs.map(doc => ({
+        id: doc.id,
+        title: doc.data().title,
+        category: doc.data().category,
+        streak: doc.data().streak,
+        frequency: doc.data().frequency,
+        history: doc.data().history || {},
+        visibility: doc.data().visibility || 'Private',
+      } as Habit));
 
       setUserHabits(fetchedHabits);
     });
@@ -101,178 +109,142 @@ export default function AccountScreen() {
     return () => unsubscribeHabits();
   }, [user?.uid]);
 
+  // 3. Compute stats
   const calculatedStats = useMemo(() => {
-    return calculateUserStats(userHabits, progressHistory, accountCreatedAt, user?.uid);
-  }, [userHabits, progressHistory, accountCreatedAt, user?.uid]);
-
-  useFocusEffect(
-    useCallback(() => {
-      const refreshUserCache = async () => {
-        if (auth.currentUser) {
-          try {
-            await auth.currentUser.reload();
-            setImgUri(auth.currentUser.photoURL);
-            setDisplayName(auth.currentUser.displayName);
-          } catch (err) {
-            console.error("Failed to sync account screen tokens:", err);
-          }
-        }
-      };
-      refreshUserCache();
-    }, [])
-  );
+    return calculateUserStats(userHabits, progressHistory, accountCreatedAt);
+  }, [userHabits, progressHistory, accountCreatedAt]);
 
   const handleSettingPress = (settingTitle: string, settingRoute: string) => {
-    router.push({
-      pathname: settingRoute as any,
-      params: { title: settingTitle }
-    });
-  };
-
-  const handleSignOut = async () => {
-    try {
-      await signOut(auth);
-    } catch (error) {
-      console.error("Error signing out user account session:", error);
-    }
+    router.push({ pathname: settingRoute as any, params: { title: settingTitle } });
   };
 
   return (
-    <SafeAreaView style={[defaultStyles.safeArea, { backgroundColor: currentColors.background }]}>
+    <SafeAreaView style={[styles.safeArea, { backgroundColor: currentColors.background }]}>
       <Tabs.Screen options={{ headerShown: false }} />
-      
-      <ScrollView style={defaultStyles.container} contentContainerStyle={{ paddingBottom: 40 }} showsVerticalScrollIndicator={false}>
-        <Text style={[defaultStyles.headerTitle, { color: currentColors.title }]}>My Account</Text>
-        <TouchableOpacity 
-          style={[styles.profileCard, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#F1F5F9' }]} 
-          onPress={() => router.push({ 
-            pathname: '/profile-editor', 
-            params: { mode: 'edit' } 
-          })}
+
+      <ScrollView
+        style={styles.container}
+        contentContainerStyle={{ paddingBottom: 32 }}
+        showsVerticalScrollIndicator={false}
+      >
+        <Text style={[styles.headerTitle, { color: currentColors.text }]}>Me</Text>
+
+        {/* --- PROFILE CARD --- */}
+        <TouchableOpacity
+          style={[
+            styles.profileCard,
+            { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#F1F5F9' },
+          ]}
+          activeOpacity={0.7}
+          onPress={() => router.push({ pathname: '/profile-editor', params: { mode: 'edit' } })}
         >
-          {imgUri ? (
-            <Image 
-              source={{ uri: imgUri }} 
-              style={[defaultStyles.avatarMedium, defaultStyles.avatarBordered]} 
+          {user?.photoURL ? (
+            <Image
+              source={{ uri: user.photoURL }}
+              style={[defaultStyles.avatarMedium, defaultStyles.avatarBordered]}
             />
           ) : (
-            <View style={[
-              defaultStyles.avatarMedium, 
-              defaultStyles.avatarBordered, 
-              defaultStyles.avatarPlaceholder, 
-              { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#E2E8F0' }
-            ]}>
-              <MaterialCommunityIcons name="account" size={24} color="#94A3B8" />
+            <View
+              style={[
+                defaultStyles.avatarMedium,
+                defaultStyles.avatarBordered,
+                {
+                  backgroundColor: colorScheme === 'dark' ? '#334155' : '#E2E8F0',
+                  justifyContent: 'center',
+                  alignItems: 'center',
+                },
+              ]}
+            >
+              <MaterialCommunityIcons name="account" size={28} color="#94A3B8" />
             </View>
           )}
-          <View>
-            <Text style={[styles.usernameLabel, { color: currentColors.text }]}>{displayName || 'Guest User'}</Text>
-            <Text style={styles.verifiedSubtext}>View & Edit Details</Text>
+
+          <View style={styles.infoContainer}>
+            <Text style={[styles.usernameLabel, { color: currentColors.text }]}>
+              {user?.displayName || "Anonymous"}
+            </Text>
+            <Text style={styles.verifiedSubtext}>{user?.email}</Text>
           </View>
-          <View style={{ flex: 1 }} />
-          <MaterialCommunityIcons 
-            name="chevron-right" 
-            size={24} 
-            color="#94A3B8" 
-            style={{ marginRight: 4 }}
-          />
+
+          <MaterialCommunityIcons name="chevron-right" size={24} color="#94A3B8" />
         </TouchableOpacity>
 
-        {/* --- STATS SECTION --- */}
-          <View style={{ marginTop: 12, width: '100%' }}>
-            <UserStatsCollapsible 
-              stats={calculatedStats} 
-              progressHistory={progressHistory}
-              accountCreatedAt={accountCreatedAt}
-              currentColors={currentColors} 
-            />
+        {/* --- USER STATISTICS --- */}
+        <View style={{ width: '100%', marginTop: 12, marginBottom: 8 }}>
+          <UserStatsCollapsible
+            stats={calculatedStats}
+            progressHistory={progressHistory}
+            accountCreatedAt={accountCreatedAt}
+            currentColors={currentColors}
+          />
         </View>
 
-        {/* Loop through the sections array */}
-        {SETTINGS_SECTIONS.map((section) => (
-          <React.Fragment key={section.sectionTitle}>
-            
+        {/* --- SETTINGS SECTIONS --- */}
+        {SETTINGS_SECTIONS.map((section, sectionIdx) => (
+          <View key={sectionIdx} style={{ marginTop: 16 }}>
             <Text style={[styles.sectionHeaderTitle, { color: '#94A3B8' }]}>
               {section.sectionTitle}
             </Text>
 
             {section.items.map((item) => (
-              <TouchableOpacity 
-                key={item.id} 
-                style={[styles.sectionCard, { backgroundColor: currentColors.cardBackground || (colorScheme === 'dark' ? '#1E293B' : '#FFFFFF') }]}
-                onPress={() => handleSettingPress(item.title, item.targetRoute)}
+              <TouchableOpacity
+                key={item.id}
+                style={[
+                  styles.sectionCard,
+                  { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#FFFFFF' },
+                ]}
                 activeOpacity={0.7}
+                onPress={() => handleSettingPress(item.title, item.targetRoute)}
               >
                 <View style={styles.infoContainer}>
                   <Text style={[styles.sectionName, { color: currentColors.text }]}>
                     {item.title}
                   </Text>
                 </View>
-                
-                <MaterialCommunityIcons 
-                  name="chevron-right" 
-                  size={24} 
-                  color="#94A3B8" 
-                  style={{ marginRight: 4 }}
-                />
+                <MaterialCommunityIcons name="chevron-right" size={20} color="#94A3B8" />
               </TouchableOpacity>
             ))}
-            
-          </React.Fragment>
+          </View>
         ))}
-
-        <View style={{ marginTop: 24 }}>
-          <CustomButton text="Log Out Account" variant="danger" onPress={handleSignOut} />
-        </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
+  safeArea: { flex: 1 },
+  container: { flex: 1, paddingHorizontal: 16, paddingTop: 16 },
+  headerTitle: { fontSize: 28, fontWeight: 'bold', marginBottom: 20 },
   profileCard: {
     flexDirection: 'row',
     alignItems: 'center',
-    padding: 20,
-    borderRadius: 20,
-    marginBottom: 16,
-    gap: 16
-  },
-  usernameLabel: {
-    fontSize: 18,
-    fontWeight: '700'
-  },
-  verifiedSubtext: {
-    fontSize: 13,
-    color: '#94A3B8',
-    marginTop: 2
-  },
-  sectionCard: {
-    flexDirection: 'row', 
-    alignItems: 'center', 
     padding: 16,
-    borderRadius: 16,
-    marginBottom: 12,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2, 
+    borderRadius: 20,
+    marginBottom: 8,
+    gap: 16,
   },
-  infoContainer: {
-    flex: 1, 
-  },
-  sectionName: {
-    fontSize: 16,
-    fontWeight: '600',
-  },
+  infoContainer: { flex: 1 },
+  usernameLabel: { fontSize: 18, fontWeight: '700' },
+  verifiedSubtext: { fontSize: 13, color: '#94A3B8', marginTop: 2 },
   sectionHeaderTitle: {
     fontSize: 12,
     fontWeight: '700',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginTop: 16,
-    marginBottom: 10,
+    marginBottom: 8,
     paddingHorizontal: 4,
   },
+  sectionCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    borderRadius: 16,
+    marginBottom: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.05,
+    shadowRadius: 4,
+    elevation: 1,
+  },
+  sectionName: { fontSize: 16, fontWeight: '600' },
 });

@@ -156,7 +156,7 @@ export default function HomeScreen() {
     <SafeAreaView style={[defaultStyles.safeArea, { backgroundColor: currentColors.background }]}>
       <Tabs.Screen options={{ headerShown: false }} />
       
-      <ScrollView style={defaultStyles.container} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
+      <ScrollView style={[defaultStyles.container, {paddingTop: 24}]} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 40 }}>
         {/* Section 1: Greeting */}
         <View style={defaultStyles.headerBox}>
           <Text style={styles.dateSubtext}>

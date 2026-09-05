@@ -54,10 +54,14 @@ function RootLayoutNav() {
   }, [currentColors.background]);
 
   useEffect(() => {
-    if (loading) return; 
+    if (loading) return;
 
     const inAuthGroup = segments[0] === '(auth)';
     const inOnboarding = segments[0] === 'profile-editor';
+    const isResetPassword = (segments as string[]).includes('reset-password');
+
+    // Keep users on the reset password screen even when logged out
+    if (isResetPassword) return;
 
     if (!user) {
       if (!inAuthGroup) {
@@ -66,7 +70,7 @@ function RootLayoutNav() {
     } else {
       if (!user.displayName) {
         if (!inOnboarding) {
-          router.replace({ pathname: '/profile-editor', params: {mode: 'create'}});
+          router.replace({ pathname: '/profile-editor', params: { mode: 'create' } });
         }
       } else {
         if (inAuthGroup) {

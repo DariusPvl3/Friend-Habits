@@ -1,10 +1,4 @@
-import CustomButton from "@/components/CustomButton";
-import CustomModal from "@/components/CustomModal";
-import Colors from "@/constants/Colors";
-import { defaultStyles } from "@/constants/GlobalStyles";
-import { useAppTheme } from "@/context/ThemeContext";
-import { Stack, useRouter } from "expo-router";
-import { useState } from "react";
+import React, { useState, useRef } from "react";
 import {
   StyleSheet,
   Text,
@@ -15,14 +9,22 @@ import {
   Platform,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
+import { Stack, useRouter } from "expo-router";
 import {
   verifyBeforeUpdateEmail,
   sendPasswordResetEmail,
+  signOut,
+  deleteUser,
 } from "firebase/auth";
-import { auth } from "@/config/firebase";
-import React from "react";
+import { auth, db } from "@/config/firebase";
+import { useAppTheme } from "@/context/ThemeContext";
+import Colors from "@/constants/Colors";
+import { defaultStyles } from "@/constants/GlobalStyles";
+import CustomButton from "@/components/CustomButton";
+import CustomModal from "@/components/CustomModal";
+import { collection, doc, getDocs, query, where, writeBatch } from "firebase/firestore";
 
-export default function AccountSettingsRoute(){
+export default function AccountSettingsRoute() {
   const router = useRouter();
   const { theme: colorScheme } = useAppTheme();
   const currentColors = Colors[colorScheme];
@@ -30,62 +32,62 @@ export default function AccountSettingsRoute(){
   const [newEmail, setNewEmail] = useState(auth.currentUser?.email || "");
   const [loading, setLoading] = useState(false);
 
-  const [alertModalVisible, setAlertModalVisible] = useState(false);
+  // Modal State
+  const [modalVisible, setModalVisible] = useState(false);
   const [modalTitle, setModalTitle] = useState("");
   const [modalDescription, setModalDescription] = useState("");
-  const [modalOnCloseAction, setModalOnCloseAction] = useState<() => void>(
-    () => {},
-  );
+  const [modalButtons, setModalButtons] = useState<any[]>([]);
 
-  const scrollViewRef = React.useRef<ScrollView>(null);
+  const scrollViewRef = useRef<ScrollView>(null);
 
-  const hasChanges = newEmail.trim().toLowerCase() !== (auth.currentUser?.email || "").toLowerCase();
+  const currentEmail = auth.currentUser?.email || "";
+  const hasEmailChanges =
+    newEmail.trim().toLowerCase() !== currentEmail.toLowerCase();
 
   const triggerAlert = (
     title: string,
     message: string,
     onClosePress?: () => void,
+    isSuccess: boolean = false
   ) => {
     setModalTitle(title);
     setModalDescription(message);
-    setModalOnCloseAction(
-      () => onClosePress || (() => setAlertModalVisible(false)),
-    );
-    setAlertModalVisible(true);
+    setModalButtons([
+      {
+        text: "Got it",
+        variant: isSuccess ? "tint" : "danger",
+        onPress: () => {
+          setModalVisible(false);
+          if (onClosePress) onClosePress();
+        },
+      },
+    ]);
+    setModalVisible(true);
   };
 
-  const handlePasswordResetRequest = async () => {
-    const currentEmail = auth.currentUser?.email;
+  // Email Update Handler
+  const handleEmailUpdate = async () => {
+    const cleanEmail = newEmail.trim().toLowerCase();
 
-    if (!currentEmail) {
+    if (!cleanEmail) {
+      triggerAlert("Hold on!", "Email field cannot be blank.");
+      return;
+    }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
       triggerAlert(
-        "Error",
-        "We couldn't find an active email address attached to this account.",
+        "Invalid Format",
+        "Please enter a valid email address (e.g., user@example.com)."
       );
       return;
     }
 
-    try {
-      setLoading(true);
-      await sendPasswordResetEmail(auth, currentEmail);
+    if (cleanEmail === currentEmail.toLowerCase()) {
       triggerAlert(
-        "Reset Link Sent! ✉️",
-        `A secure password reset link has been dispatched to ${currentEmail}. Follow the instructions inside the email to complete updating your credentials.`,
+        "No Changes",
+        "This email is already associated with your account."
       );
-    } catch (error: any) {
-      console.error(error);
-      triggerAlert(
-        "Request Failed",
-        "Could not dispatch reset email link. Please try again.",
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleAccountSave = async () => {
-    if (!newEmail.trim()) {
-      triggerAlert("Hold on!", "Email field cannot be blank.");
       return;
     }
 
@@ -94,50 +96,138 @@ export default function AccountSettingsRoute(){
       const user = auth.currentUser;
 
       if (user) {
-        let requiresVerificationAlert = false;
-
-        // Conditional Email update check
-        if (newEmail.trim().toLowerCase() !== (user.email || "").toLowerCase()) {
-          await verifyBeforeUpdateEmail(user, newEmail.trim().toLowerCase());
-          requiresVerificationAlert = true;
-        }
-
-        await user.reload();
-
-        if (requiresVerificationAlert) {
-          triggerAlert(
-            "Account Updated!",
-            "Your changes are live. Check your inbox at the new email address to verify and complete your account email update!",
-            () => {
-              setAlertModalVisible(false);
-              router.back();
-            },
-          );
-        } else {
-          triggerAlert(
-            "Changes Saved!",
-            "Your account information has been successfully synced.",
-            () => {
-              setAlertModalVisible(false);
-              router.back();
-            },
-          );
-        }
+        await verifyBeforeUpdateEmail(user, cleanEmail);
+        triggerAlert(
+          "Verification Sent! ✉️",
+          `A confirmation link was dispatched to ${cleanEmail}. Your email will update as soon as you confirm the link.`,
+          undefined,
+          true
+        );
       }
     } catch (error: any) {
-      console.error(error);
-      let localizedError = "Could not save updates. Please try again.";
+      console.error("Email update failed:", error);
+      let message = "Could not update email. Please try again.";
 
       if (error.code === "auth/requires-recent-login") {
-        localizedError =
-          "For security purposes, modifying your credentials requires a fresh session. Please log out, sign back in, and try again instantly.";
-      } else if (error.code === "auth/invalid-email") {
-        localizedError = "The email address layout format is invalid.";
+        message =
+          "For security reasons, changing your email requires a fresh login. Please sign out and sign back in before trying again.";
       } else if (error.code === "auth/email-already-in-use") {
-        localizedError = "This email address is already claimed by another user account.";
+        message = "This email address is already claimed by another user.";
       }
 
-      triggerAlert("Update Failed", localizedError);
+      triggerAlert("Update Failed", message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Password Reset Handler
+  const handlePasswordResetRequest = () => {
+    router.push("/(auth)/reset-password");
+  };
+
+  // Log Out Handler
+  const handleSignOutPress = () => {
+    setModalTitle("Log Out");
+    setModalDescription("Are you sure you want to sign out of your account?");
+    setModalButtons([
+      {
+        text: "Cancel",
+        variant: "tint",
+        onPress: () => setModalVisible(false),
+      },
+      {
+        text: "Log Out",
+        variant: "danger",
+        onPress: async () => {
+          setModalVisible(false);
+          try {
+            await signOut(auth);
+          } catch (error) {
+            console.error("Sign out error:", error);
+            triggerAlert("Error", "Could not log out. Please check your connection.");
+          }
+        },
+      },
+    ]);
+    setModalVisible(true);
+  };
+
+  // Delete Account Handler
+  const handleDeleteAccountPress = () => {
+    setModalTitle("Delete Account");
+    setModalDescription(
+      "Are you sure you want to permanently delete your account? All habits, streak history, and friendships will be removed forever."
+    );
+    setModalButtons([
+      {
+        text: "Cancel",
+        variant: "tint",
+        onPress: () => setModalVisible(false),
+      },
+      {
+        text: "Delete Forever",
+        variant: "danger",
+        onPress: () => {
+          setModalVisible(false);
+          executeCascadeDelete();
+        },
+      },
+    ]);
+    setModalVisible(true);
+  };
+
+  const executeCascadeDelete = async () => {
+    const user = auth.currentUser;
+    if (!user) return;
+
+    try {
+      setLoading(true);
+      const batch = writeBatch(db);
+
+      // Free up the unique username record
+      if (user.displayName) {
+        const usernameRef = doc(db, "usernames", user.displayName);
+        batch.delete(usernameRef);
+      }
+
+      // Query and delete all habits created by this user
+      const habitsQuery = query(
+        collection(db, "habits"),
+        where("userId", "==", user.uid)
+      );
+      const habitsSnapshot = await getDocs(habitsQuery);
+      habitsSnapshot.forEach((habitDoc) => {
+        batch.delete(habitDoc.ref);
+      });
+
+      // Query and delete all friendships involving this user
+      const friendshipsQuery = query(
+        collection(db, "friendships"),
+        where("users", "array-contains", user.uid)
+      );
+      const friendshipsSnapshot = await getDocs(friendshipsQuery);
+      friendshipsSnapshot.forEach((friendshipDoc) => {
+        batch.delete(friendshipDoc.ref);
+      });
+
+      // Commit all Firestore deletions atomically
+      await batch.commit();
+
+      // Delete Firebase Auth user
+      await deleteUser(user);
+
+      // Root auth gatekeeper will catch null state and redirect to (auth)/login automatically
+    } catch (error: any) {
+      console.error("Cascade account deletion error:", error);
+      let message = "Could not complete account deletion. Please try again.";
+
+      if (error.code === "auth/requires-recent-login") {
+        message =
+          "For security reasons, deleting your account requires a fresh login. Please log out, sign back in, and try deleting again.";
+      }
+
+      triggerAlert("Deletion Failed", message);
     } finally {
       setLoading(false);
     }
@@ -150,98 +240,163 @@ export default function AccountSettingsRoute(){
       <Stack.Screen
         options={{
           headerShown: true,
-          title: "Settings",
+          title: "Account Settings",
           headerTintColor: currentColors.tint,
           headerStyle: { backgroundColor: currentColors.background },
         }}
       />
-  
+
       <KeyboardAvoidingView
         behavior={Platform.OS === "ios" ? "padding" : "height"}
         style={{ flex: 1 }}
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 64 : 0} 
+        keyboardVerticalOffset={Platform.OS === "ios" ? 64 : 0}
       >
         <ScrollView
           ref={scrollViewRef}
           style={defaultStyles.container}
           contentContainerStyle={defaultStyles.scrollContent}
           showsVerticalScrollIndicator={false}
-          keyboardShouldPersistTaps="handled" 
-          automaticallyAdjustKeyboardInsets={true}
+          keyboardShouldPersistTaps="handled"
         >
           <View style={defaultStyles.headerBox}>
             <Text style={[defaultStyles.title, { color: currentColors.text }]}>
-              View and Edit Account Details
+              Account Management
+            </Text>
+            <Text style={{ color: "#94A3B8", fontSize: 14 }}>
+              Manage your credentials, authentication session, and privacy.
             </Text>
           </View>
 
-          <View style={defaultStyles.form}>
-            <Text style={[defaultStyles.label, { color: currentColors.text }]}>
-              Change e-mail
-            </Text>
-            <TextInput
-              style={[defaultStyles.input, { 
+          {/* EMAIL MANAGEMENT */}
+          <Text style={[defaultStyles.label, { color: currentColors.text }]}>
+            Change Email
+          </Text>
+          <TextInput
+            style={[
+              defaultStyles.input,
+              {
                 backgroundColor: colorScheme === "dark" ? "#1E293B" : "#FFF",
                 color: currentColors.text,
                 borderColor: colorScheme === "dark" ? "#334155" : "#CBD5E1",
-              }]}
-              value={newEmail}
-              onChangeText={setNewEmail}
-              autoCapitalize="none"
-              onFocus={() => scrollViewRef.current?.scrollTo({ y: 180, animated: true })}
+              },
+            ]}
+            value={newEmail}
+            onChangeText={setNewEmail}
+            autoCapitalize="none"
+            keyboardType="email-address"
+          />
+
+          <View style={{ marginTop: 8, marginBottom: 28 }}>
+            <CustomButton
+              text="Update Email"
+              disabled={!hasEmailChanges || loading}
+              variant="tint"
+              onPress={handleEmailUpdate}
             />
+          </View>
 
-            <Text style={[defaultStyles.label, { color: currentColors.text, marginTop: 16 }]}>
-              Account Security
+          {/* PASSWORD CHANGING */}
+          <Text style={[defaultStyles.label, { color: currentColors.text }]}>
+            Password Security
+          </Text>
+          <View
+            style={[
+              styles.card,
+              {
+                backgroundColor: colorScheme === "dark" ? "#1E293B" : "#F8FAFC",
+              },
+            ]}
+          >
+            <Text style={styles.cardSubtext}>
+              Need to change your credentials? Send a secure recovery link to your
+              current email address ({currentEmail}).
             </Text>
-            <View style={[styles.securityCard, { backgroundColor: colorScheme === 'dark' ? '#1E293B' : '#F8FAFC' }]}>
-              <Text style={{ color: '#94A3B8', fontSize: 14, marginBottom: 16, lineHeight: 20 }}>
-                Want to update your account security password? Click below to dispatch secure password reset instructions straight to your registered inbox.
-              </Text>
-              <CustomButton
-                text="Send Password Reset Link"
-                variant="danger"
-                disabled={loading}
-                onPress={handlePasswordResetRequest}
-              />
-            </View>
+            <CustomButton
+              text="Change Password"
+              variant="tint"
+              disabled={loading}
+              onPress={handlePasswordResetRequest}
+            />
+          </View>
 
-            <View style={defaultStyles.actionSpace}>
-              <CustomButton
-                text="Save Changes"
-                disabled={!hasChanges || loading}
-                variant="tint"
-                onPress={handleAccountSave}
-              />
-            </View>
+          {/* SESSION MANAGEMENT */}
+          <Text style={[defaultStyles.label, { color: currentColors.text, marginTop: 16 }]}>
+            Session
+          </Text>
+          <View
+            style={[
+              styles.card,
+              {
+                backgroundColor: colorScheme === "dark" ? "#1E293B" : "#F8FAFC",
+              },
+            ]}
+          >
+            <Text style={styles.cardSubtext}>
+              Sign out of this device. You will need to enter your credentials to access your routines again.
+            </Text>
+            <CustomButton
+              text="Log Out"
+              variant="danger"
+              disabled={loading}
+              onPress={handleSignOutPress}
+            />
+          </View>
+
+          {/* ACCOUNT DELETION */}
+          <Text
+            style={[
+              defaultStyles.label,
+              { color: "#EF4444", marginTop: 16 },
+            ]}
+          >
+            Danger Zone
+          </Text>
+          <View
+            style={[
+              styles.card,
+              {
+                backgroundColor: colorScheme === "dark" ? "#1E293B" : "#F8FAFC",
+                borderColor: "rgba(239, 68, 68, 0.3)",
+              },
+            ]}
+          >
+            <Text style={styles.cardSubtext}>
+              Permanently delete your account, habits, streak records, and friend connections. This action cannot be reversed.
+            </Text>
+            <CustomButton
+              text="Delete Account"
+              variant="danger"
+              disabled={loading}
+              onPress={handleDeleteAccountPress}
+            />
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
 
       <CustomModal
-        visible={alertModalVisible}
+        visible={modalVisible}
         title={modalTitle}
         description={modalDescription}
-        onClose={modalOnCloseAction}
-        buttons={[
-          { 
-            text: "Got it", 
-            variant: modalTitle.includes("Saved") || modalTitle.includes("Updated") || modalTitle.includes("Link Sent") ? 'tint' : 'danger', 
-            onPress: modalOnCloseAction
-          }
-        ]}
+        onClose={() => setModalVisible(false)}
+        buttons={modalButtons}
       />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  securityCard: {
+  card: {
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: "rgba(148, 163, 184, 0.12)",
     width: "100%",
     marginBottom: 12,
+  },
+  cardSubtext: {
+    color: "#94A3B8",
+    fontSize: 14,
+    marginBottom: 14,
+    lineHeight: 20,
   },
 });

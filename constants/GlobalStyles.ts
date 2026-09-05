@@ -7,8 +7,7 @@ export const defaultStyles = StyleSheet.create({
   },
   container: {
     flex: 1,
-    paddingHorizontal: 16,
-    paddingTop: 24,
+    paddingHorizontal: 16
   },
   scrollContent: {
     paddingTop: Platform.OS === 'ios' ? 10 : 24,

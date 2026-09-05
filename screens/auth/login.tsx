@@ -123,7 +123,7 @@ export default function LoginScreen() {
             showsVerticalScrollIndicator={false}
             keyboardShouldPersistTaps="handled"
           >
-            <View style={defaultStyles.container}>
+            <View style={[defaultStyles.container, {paddingTop: 24}]}>
               <View style={defaultStyles.headerBox}>
                 <Text style={[defaultStyles.title, { color: currentColors.text }]}>
                   Welcome Back!
